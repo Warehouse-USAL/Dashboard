@@ -2,7 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Map as MapIcon, Truck, Maximize2, Pause, Play } from "lucide-react";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
-import { batteryTone, stateStyles, useLiveRovers, type RoverState } from "@/lib/dashboard-data";
+import { batteryTone, stateStyles, type Rover, type RoverState } from "@/lib/dashboard-data";
+import { useVehicles } from "@/hooks/useVehicles";
+import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
 
 export const Route = createFileRoute("/_dash/mapa")({
   component: MapaPage,
@@ -10,7 +12,8 @@ export const Route = createFileRoute("/_dash/mapa")({
 });
 
 function MapaPage() {
-  const rovers = useLiveRovers();
+  const { data: rovers } = useVehicles();
+  useVehicleWebSocket();
   const [selected, setSelected] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
 
@@ -106,7 +109,7 @@ function Legend({ color, label }: { color: string; label: string }) {
 function WarehouseMap({
   rovers, onSelect, selected, paused,
 }: {
-  rovers: ReturnType<typeof useLiveRovers>;
+  rovers: Rover[];
   onSelect: (id: string) => void;
   selected: string | null;
   paused: boolean;
@@ -117,7 +120,6 @@ function WarehouseMap({
     { x: 20, y: 4, w: 78, h: 74, label: "Almacén" },
     { x: 20, y: 82, w: 78, h: 14, label: "Carga" },
   ];
-  // Two parallel aisles inside the almacén
   const aisles = [
     { y: 32, label: "Pasillo 1" },
     { y: 60, label: "Pasillo 2" },

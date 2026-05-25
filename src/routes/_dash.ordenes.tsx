@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { ListChecks, Search } from "lucide-react";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
-import { orders } from "@/lib/dashboard-data";
+import { useOrders } from "@/hooks/useOrders";
 
 export const Route = createFileRoute("/_dash/ordenes")({
   component: OrdenesPage,
@@ -13,6 +13,7 @@ const tabs = ["todas", "en proceso", "en espera"] as const;
 type Tab = (typeof tabs)[number];
 
 function OrdenesPage() {
+  const { data: orders } = useOrders();
   const [tab, setTab] = useState<Tab>("todas");
   const [q, setQ] = useState("");
 
@@ -22,7 +23,7 @@ function OrdenesPage() {
       if (q && !`${o.id} ${o.product} ${o.rover}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
     });
-  }, [tab, q]);
+  }, [orders, tab, q]);
 
   const stats = {
     total: orders.length,
