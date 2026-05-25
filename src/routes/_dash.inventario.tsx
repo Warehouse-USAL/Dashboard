@@ -22,7 +22,7 @@ function InventarioPage() {
     }), [products, q, filter]);
 
   const totals = useMemo(() => ({
-    bajo: products.filter((s) => s.status === "bajo").length,
+    bajo:    products.filter((s) => s.status === "bajo").length,
     agotado: products.filter((s) => s.status === "agotado").length,
   }), [products]);
 
@@ -76,7 +76,7 @@ function InventarioPage() {
                   <td className="py-3 px-2 text-xs text-right font-semibold">{s.available}</td>
                   <td className="py-3 px-2">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                      s.status === "ok" ? "border-primary/30 bg-primary/10 text-primary"
+                      s.status === "ok"   ? "border-primary/30 bg-primary/10 text-primary"
                       : s.status === "bajo" ? "border-warning/30 bg-warning/10 text-warning"
                       : "border-destructive/30 bg-destructive/10 text-destructive"}`}>
                       {s.status === "ok" ? "disponible" : s.status}

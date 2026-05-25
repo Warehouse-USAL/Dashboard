@@ -17,13 +17,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
-import {
-  alertTone,
-  alerts,
-  batteryTone,
-  stateStyles,
-  throughput,
-} from "@/lib/dashboard-data";
+import { alertTone, alerts, batteryTone, stateStyles, throughput } from "@/lib/dashboard-data";
 import { useVehicles } from "@/hooks/useVehicles";
 import { useOrders } from "@/hooks/useOrders";
 
@@ -48,8 +42,8 @@ function ResumenPage() {
   const { data: orders } = useOrders();
   const activeCount = useMemo(() => rovers.filter((r) => r.state === "activo").length, [rovers]);
   const inProgress = orders.filter((o) => o.state === "en proceso").length;
-  const waiting = orders.filter((o) => o.state === "en espera").length;
-  const avgTime = (throughput.reduce((a, b) => a + b.tiempo, 0) / throughput.length).toFixed(1);
+  const waiting    = orders.filter((o) => o.state === "en espera").length;
+  const avgTime    = (throughput.reduce((a, b) => a + b.tiempo, 0) / throughput.length).toFixed(1);
 
   return (
     <div className="space-y-6">

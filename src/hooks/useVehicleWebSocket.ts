@@ -5,7 +5,7 @@ import type { Rover } from "@/lib/dashboard-data";
 
 export function useVehicleWebSocket() {
   const queryClient = useQueryClient();
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef  = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {

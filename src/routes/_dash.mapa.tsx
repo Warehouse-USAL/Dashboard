@@ -125,7 +125,7 @@ function WarehouseMap({
     { y: 60, label: "Pasillo 2" },
   ];
   const stateDot: Record<RoverState, string> = {
-    activo: "bg-primary ring-2 ring-primary/40",
+    activo:   "bg-primary ring-2 ring-primary/40",
     cargando: "bg-warning ring-2 ring-warning/30",
     detenido: "bg-destructive ring-2 ring-destructive/30",
     inactivo: "bg-muted-foreground",

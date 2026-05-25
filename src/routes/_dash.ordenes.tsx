@@ -17,27 +17,22 @@ function OrdenesPage() {
   const [tab, setTab] = useState<Tab>("todas");
   const [q, setQ] = useState("");
 
-  const filtered = useMemo(() => {
-    return orders.filter((o) => {
+  const filtered = useMemo(() =>
+    orders.filter((o) => {
       if (tab !== "todas" && o.state !== tab) return false;
       if (q && !`${o.id} ${o.product} ${o.rover}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
-    });
-  }, [orders, tab, q]);
+    }), [orders, tab, q]);
 
   const stats = {
-    total: orders.length,
+    total:   orders.length,
     proceso: orders.filter((o) => o.state === "en proceso").length,
-    espera: orders.filter((o) => o.state === "en espera").length,
+    espera:  orders.filter((o) => o.state === "en espera").length,
   };
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={ListChecks}
-        title="Órdenes"
-        description="Gestión de la cola de retiro"
-      />
+      <PageHeader icon={ListChecks} title="Órdenes" description="Gestión de la cola de retiro" />
 
       <div className="grid grid-cols-3 gap-4">
         <StatCard label="Totales" value={stats.total} />
@@ -87,7 +82,7 @@ function OrdenesPage() {
                   <td className="py-3 px-2 text-xs text-right">×{o.qty}</td>
                   <td className="py-3 px-2">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                      o.priority === "alta" ? "border-destructive/30 bg-destructive/10 text-destructive"
+                      o.priority === "alta"  ? "border-destructive/30 bg-destructive/10 text-destructive"
                       : o.priority === "media" ? "border-warning/30 bg-warning/10 text-warning"
                       : "border-border bg-secondary text-muted-foreground"}`}>
                       {o.priority}
