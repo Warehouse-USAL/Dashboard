@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { PackageSearch, Search } from "lucide-react";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
-import { stock } from "@/lib/dashboard-data";
+import { useProducts } from "@/hooks/useProducts";
 
 export const Route = createFileRoute("/_dash/inventario")({
   component: InventarioPage,
@@ -10,20 +10,21 @@ export const Route = createFileRoute("/_dash/inventario")({
 });
 
 function InventarioPage() {
+  const { data: products } = useProducts();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"todos" | "ok" | "bajo" | "agotado">("todos");
 
   const filtered = useMemo(() =>
-    stock.filter((s) => {
+    products.filter((s) => {
       if (filter !== "todos" && s.status !== filter) return false;
       if (q && !`${s.sku} ${s.name} ${s.zone}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
-    }), [q, filter]);
+    }), [products, q, filter]);
 
-  const totals = {
-    bajo: stock.filter((s) => s.status === "bajo").length,
-    agotado: stock.filter((s) => s.status === "agotado").length,
-  };
+  const totals = useMemo(() => ({
+    bajo:    products.filter((s) => s.status === "bajo").length,
+    agotado: products.filter((s) => s.status === "agotado").length,
+  }), [products]);
 
   return (
     <div className="space-y-6">
@@ -75,7 +76,7 @@ function InventarioPage() {
                   <td className="py-3 px-2 text-xs text-right font-semibold">{s.available}</td>
                   <td className="py-3 px-2">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                      s.status === "ok" ? "border-primary/30 bg-primary/10 text-primary"
+                      s.status === "ok"   ? "border-primary/30 bg-primary/10 text-primary"
                       : s.status === "bajo" ? "border-warning/30 bg-warning/10 text-warning"
                       : "border-destructive/30 bg-destructive/10 text-destructive"}`}>
                       {s.status === "ok" ? "disponible" : s.status}

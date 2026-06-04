@@ -12,4 +12,15 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      proxy: {
+        "/auth":     { target: "http://localhost:8090", changeOrigin: true },
+        "/vehicles": { target: "http://localhost:8090", changeOrigin: true },
+        "/orders":   { target: "http://localhost:8090", changeOrigin: true },
+        "/products": { target: "http://localhost:8090", changeOrigin: true },
+        "/ws":       { target: "ws://localhost:8090",   ws: true, changeOrigin: true },
+      },
+    },
+  },
 });

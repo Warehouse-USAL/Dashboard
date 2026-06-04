@@ -3,7 +3,6 @@ import { useMemo } from "react";
 import {
   Activity,
   AlertTriangle,
-  Battery,
   BatteryLow,
   Bell,
   Boxes,
@@ -12,22 +11,15 @@ import {
   Cpu,
   LayoutDashboard,
   ListChecks,
-  Map as MapIcon,
   Radio,
   ShieldAlert,
   Truck,
   Zap,
 } from "lucide-react";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
-import {
-  alertTone,
-  alerts,
-  batteryTone,
-  orders,
-  stateStyles,
-  throughput,
-  useLiveRovers,
-} from "@/lib/dashboard-data";
+import { alertTone, alerts, batteryTone, stateStyles, throughput } from "@/lib/dashboard-data";
+import { useVehicles } from "@/hooks/useVehicles";
+import { useOrders } from "@/hooks/useOrders";
 
 export const Route = createFileRoute("/_dash/")({
   component: ResumenPage,
@@ -46,11 +38,12 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 function ResumenPage() {
-  const rovers = useLiveRovers();
+  const { data: rovers } = useVehicles();
+  const { data: orders } = useOrders();
   const activeCount = useMemo(() => rovers.filter((r) => r.state === "activo").length, [rovers]);
   const inProgress = orders.filter((o) => o.state === "en proceso").length;
-  const waiting = orders.filter((o) => o.state === "en espera").length;
-  const avgTime = (throughput.reduce((a, b) => a + b.tiempo, 0) / throughput.length).toFixed(1);
+  const waiting    = orders.filter((o) => o.state === "en espera").length;
+  const avgTime    = (throughput.reduce((a, b) => a + b.tiempo, 0) / throughput.length).toFixed(1);
 
   return (
     <div className="space-y-6">
