@@ -1,0 +1,11 @@
+node_modules
+dist
+.cloudflare
+.git
+.gitignore
+*.md
+.env*
+docker-compose*.yml
+Makefile
+docs
+.claude/

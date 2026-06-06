@@ -73,17 +73,37 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Dashboard version 0.1" },
-      { name: "description", content: "Smart Warehouse Monitor provides a dashboard for real-time automated warehouse monitoring and data visualization." },
+      {
+        name: "description",
+        content:
+          "Smart Warehouse Monitor provides a dashboard for real-time automated warehouse monitoring and data visualization.",
+      },
       { name: "author", content: "Lovable" },
       { property: "og:title", content: "Dashboard version 0.1" },
-      { property: "og:description", content: "Smart Warehouse Monitor provides a dashboard for real-time automated warehouse monitoring and data visualization." },
+      {
+        property: "og:description",
+        content:
+          "Smart Warehouse Monitor provides a dashboard for real-time automated warehouse monitoring and data visualization.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
       { name: "twitter:title", content: "Dashboard version 0.1" },
-      { name: "twitter:description", content: "Smart Warehouse Monitor provides a dashboard for real-time automated warehouse monitoring and data visualization." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/cf035b62-99dd-41b1-a0a8-914629e1a769/id-preview-da0ffa10--4e53c392-9435-43b9-b7ad-ebc93b3723e1.lovable.app-1778629814430.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/cf035b62-99dd-41b1-a0a8-914629e1a769/id-preview-da0ffa10--4e53c392-9435-43b9-b7ad-ebc93b3723e1.lovable.app-1778629814430.png" },
+      {
+        name: "twitter:description",
+        content:
+          "Smart Warehouse Monitor provides a dashboard for real-time automated warehouse monitoring and data visualization.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/cf035b62-99dd-41b1-a0a8-914629e1a769/id-preview-da0ffa10--4e53c392-9435-43b9-b7ad-ebc93b3723e1.lovable.app-1778629814430.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/cf035b62-99dd-41b1-a0a8-914629e1a769/id-preview-da0ffa10--4e53c392-9435-43b9-b7ad-ebc93b3723e1.lovable.app-1778629814430.png",
+      },
     ],
     links: [
       {

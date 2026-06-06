@@ -40,8 +40,13 @@ async function getToken(): Promise<string> {
   if (cachedToken) return cachedToken;
   if (!loginInFlight) {
     loginInFlight = login()
-      .then((token) => { cachedToken = token; return token; })
-      .finally(() => { loginInFlight = null; });
+      .then((token) => {
+        cachedToken = token;
+        return token;
+      })
+      .finally(() => {
+        loginInFlight = null;
+      });
   }
   return loginInFlight;
 }
@@ -72,10 +77,10 @@ export interface BackendVehicle {
 }
 
 const statusToState: Record<string, RoverState> = {
-  idle:    "activo",
-  busy:    "activo",
+  idle: "activo",
+  busy: "activo",
   offline: "inactivo",
-  error:   "detenido",
+  error: "detenido",
 };
 
 export function mapVehicle(v: BackendVehicle): Rover {
@@ -115,10 +120,10 @@ interface BackendOrder {
 }
 
 const orderStatusMap: Record<string, string> = {
-  pending:     "en espera",
+  pending: "en espera",
   in_progress: "en proceso",
-  completed:   "completada",
-  cancelled:   "cancelada",
+  completed: "completada",
+  cancelled: "cancelada",
 };
 
 function mapOrder(o: BackendOrder): FrontendOrder {
@@ -140,12 +145,14 @@ function mapOrder(o: BackendOrder): FrontendOrder {
 interface BackendProduct {
   sku: string;
   name: string;
-  stock?: {
-    available?: number;
-    reserved?: number;
-    minimumStock?: number;   // camelCase en el nuevo backend
-    minimum_stock?: number;  // fallback snake_case
-  } | number;
+  stock?:
+    | {
+        available?: number;
+        reserved?: number;
+        minimumStock?: number; // camelCase en el nuevo backend
+        minimum_stock?: number; // fallback snake_case
+      }
+    | number;
   available?: number;
   location?: { zone?: string; line?: string; position?: string };
   active?: boolean;
@@ -155,16 +162,9 @@ function mapProduct(p: BackendProduct): FrontendProduct {
   const stockObj = typeof p.stock === "object" && p.stock !== null ? p.stock : null;
   const stockNum = typeof p.stock === "number" ? p.stock : null;
 
-  const available =
-    stockObj?.available ??
-    stockNum ??
-    p.available ??
-    0;
+  const available = stockObj?.available ?? stockNum ?? p.available ?? 0;
 
-  const minimum =
-    stockObj?.minimumStock ??
-    stockObj?.minimum_stock ??
-    0;
+  const minimum = stockObj?.minimumStock ?? stockObj?.minimum_stock ?? 0;
 
   const zone = [p.location?.zone, p.location?.line].filter(Boolean).join("-");
 
@@ -181,7 +181,9 @@ export async function getVehicles(): Promise<Rover[]> {
     const res = await apiFetch("/vehicles");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
-    const data = (Array.isArray(raw) ? raw : raw.vehicles ?? raw.content ?? []) as BackendVehicle[];
+    const data = (
+      Array.isArray(raw) ? raw : (raw.vehicles ?? raw.content ?? [])
+    ) as BackendVehicle[];
     return data.map(mapVehicle);
   } catch (err) {
     console.error("[api] getVehicles → mock:", err);
@@ -195,7 +197,7 @@ export async function getOrders(status?: string): Promise<FrontendOrder[]> {
     const res = await apiFetch(path);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
-    const list = (Array.isArray(raw) ? raw : raw.orders ?? raw.content ?? []) as BackendOrder[];
+    const list = (Array.isArray(raw) ? raw : (raw.orders ?? raw.content ?? [])) as BackendOrder[];
     return list.map(mapOrder);
   } catch (err) {
     console.error("[api] getOrders → mock:", err);
@@ -208,7 +210,9 @@ export async function getProducts(): Promise<FrontendProduct[]> {
     const res = await apiFetch("/products");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
-    const list = (Array.isArray(raw) ? raw : raw.products ?? raw.content ?? []) as BackendProduct[];
+    const list = (
+      Array.isArray(raw) ? raw : (raw.products ?? raw.content ?? [])
+    ) as BackendProduct[];
     return list.map(mapProduct);
   } catch (err) {
     console.error("[api] getProducts → mock:", err);
@@ -219,8 +223,9 @@ export async function getProducts(): Promise<FrontendProduct[]> {
 export async function getWsUrl(): Promise<string> {
   const token = await getToken();
   if (!BASE_URL) {
-    const proto = typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
-    const host  = typeof location !== "undefined" ? location.host : "localhost:8084";
+    const proto =
+      typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
+    const host = typeof location !== "undefined" ? location.host : "localhost:8084";
     return `${proto}//${host}/ws/v1/vehicles?token=${token}`;
   }
   const wsBase = BASE_URL.replace(/^https/, "wss").replace(/^http/, "ws");

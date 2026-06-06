@@ -15,27 +15,152 @@ export interface Rover {
 }
 
 export const initialRovers: Rover[] = [
-  { id: "R-01", name: "Rover Alpha", state: "activo", battery: 82, hours: 4.2, order: "OR-12504", zone: "Pasillo 1", x: 25, y: 32, vx: 0.9, vy: 0 },
-  { id: "R-02", name: "Rover Bravo", state: "activo", battery: 64, hours: 6.1, order: "OR-12508", zone: "Pasillo 2", x: 70, y: 60, vx: -0.9, vy: 0 },
-  { id: "R-03", name: "Rover Charlie", state: "cargando", battery: 18, hours: 8.0, order: null, zone: "Carga", x: 50, y: 90, vx: 0, vy: 0 },
+  {
+    id: "R-01",
+    name: "Rover Alpha",
+    state: "activo",
+    battery: 82,
+    hours: 4.2,
+    order: "OR-12504",
+    zone: "Pasillo 1",
+    x: 25,
+    y: 32,
+    vx: 0.9,
+    vy: 0,
+  },
+  {
+    id: "R-02",
+    name: "Rover Bravo",
+    state: "activo",
+    battery: 64,
+    hours: 6.1,
+    order: "OR-12508",
+    zone: "Pasillo 2",
+    x: 70,
+    y: 60,
+    vx: -0.9,
+    vy: 0,
+  },
+  {
+    id: "R-03",
+    name: "Rover Charlie",
+    state: "cargando",
+    battery: 18,
+    hours: 8.0,
+    order: null,
+    zone: "Carga",
+    x: 50,
+    y: 90,
+    vx: 0,
+    vy: 0,
+  },
 ];
 
 export const alerts = [
-  { id: 1, hu: "HU#7", type: "Batería baja", rover: "R-03", level: "warning", time: "hace 2 min", icon: "battery-low" },
-  { id: 2, hu: "HU#12", type: "Rover detenido > 30s", rover: "R-02", level: "critical", time: "hace 4 min", icon: "shield-alert" },
-  { id: 4, hu: "HU#8", type: "Proximidad de rovers", rover: "R-01 ↔ R-02", level: "info", time: "hace 18 min", icon: "radio" },
-  { id: 5, hu: "HU#10", type: "Producto caído detectado", rover: "R-02", level: "warning", time: "hace 25 min", icon: "alert-triangle" },
-  { id: 7, hu: "HU#13", type: "Colisión de rover", rover: "R-01 ↔ R-02", level: "critical", time: "hace 47 min", icon: "alert-triangle" },
+  {
+    id: 1,
+    hu: "HU#7",
+    type: "Batería baja",
+    rover: "R-03",
+    level: "warning",
+    time: "hace 2 min",
+    icon: "battery-low",
+  },
+  {
+    id: 2,
+    hu: "HU#12",
+    type: "Rover detenido > 30s",
+    rover: "R-02",
+    level: "critical",
+    time: "hace 4 min",
+    icon: "shield-alert",
+  },
+  {
+    id: 4,
+    hu: "HU#8",
+    type: "Proximidad de rovers",
+    rover: "R-01 ↔ R-02",
+    level: "info",
+    time: "hace 18 min",
+    icon: "radio",
+  },
+  {
+    id: 5,
+    hu: "HU#10",
+    type: "Producto caído detectado",
+    rover: "R-02",
+    level: "warning",
+    time: "hace 25 min",
+    icon: "alert-triangle",
+  },
+  {
+    id: 7,
+    hu: "HU#13",
+    type: "Colisión de rover",
+    rover: "R-01 ↔ R-02",
+    level: "critical",
+    time: "hace 47 min",
+    icon: "alert-triangle",
+  },
 ] as const;
 
 export const orders = [
-  { id: "OR-12504", product: "SKU-A102 · Caja 24u", qty: 3, priority: "alta", state: "en proceso", rover: "R-01" },
-  { id: "OR-12508", product: "SKU-B441 · Pallet", qty: 1, priority: "alta", state: "en proceso", rover: "R-02" },
-  { id: "OR-12511", product: "SKU-C019 · Caja 12u", qty: 5, priority: "media", state: "en espera", rover: "—" },
-  { id: "OR-12512", product: "SKU-D227 · Bulto", qty: 2, priority: "baja", state: "en espera", rover: "—" },
-  { id: "OR-12515", product: "SKU-A102 · Caja 24u", qty: 4, priority: "media", state: "en espera", rover: "—" },
-  { id: "OR-12517", product: "SKU-E308 · Pallet", qty: 1, priority: "alta", state: "en espera", rover: "—" },
-  { id: "OR-12519", product: "SKU-B441 · Pallet", qty: 2, priority: "baja", state: "en espera", rover: "—" },
+  {
+    id: "OR-12504",
+    product: "SKU-A102 · Caja 24u",
+    qty: 3,
+    priority: "alta",
+    state: "en proceso",
+    rover: "R-01",
+  },
+  {
+    id: "OR-12508",
+    product: "SKU-B441 · Pallet",
+    qty: 1,
+    priority: "alta",
+    state: "en proceso",
+    rover: "R-02",
+  },
+  {
+    id: "OR-12511",
+    product: "SKU-C019 · Caja 12u",
+    qty: 5,
+    priority: "media",
+    state: "en espera",
+    rover: "—",
+  },
+  {
+    id: "OR-12512",
+    product: "SKU-D227 · Bulto",
+    qty: 2,
+    priority: "baja",
+    state: "en espera",
+    rover: "—",
+  },
+  {
+    id: "OR-12515",
+    product: "SKU-A102 · Caja 24u",
+    qty: 4,
+    priority: "media",
+    state: "en espera",
+    rover: "—",
+  },
+  {
+    id: "OR-12517",
+    product: "SKU-E308 · Pallet",
+    qty: 1,
+    priority: "alta",
+    state: "en espera",
+    rover: "—",
+  },
+  {
+    id: "OR-12519",
+    product: "SKU-B441 · Pallet",
+    qty: 2,
+    priority: "baja",
+    state: "en espera",
+    rover: "—",
+  },
 ];
 
 export const stock = [
@@ -99,13 +224,28 @@ function startLoop() {
       x += vx;
       y += vy;
       // bounce within almacén corridor (x: 22-78)
-      if (x <= 22) { x = 22; vx = Math.abs(vx); }
-      if (x >= 96) { x = 96; vx = -Math.abs(vx); }
-      if (y <= 6) { y = 6; vy = Math.abs(vy); }
-      if (y >= 94) { y = 94; vy = -Math.abs(vy); }
+      if (x <= 22) {
+        x = 22;
+        vx = Math.abs(vx);
+      }
+      if (x >= 96) {
+        x = 96;
+        vx = -Math.abs(vx);
+      }
+      if (y <= 6) {
+        y = 6;
+        vy = Math.abs(vy);
+      }
+      if (y >= 94) {
+        y = 94;
+        vy = -Math.abs(vy);
+      }
       return {
         ...r,
-        x, y, vx, vy,
+        x,
+        y,
+        vx,
+        vy,
         battery: Math.max(5, r.battery - 0.05),
       };
     });

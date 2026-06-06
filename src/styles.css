@@ -68,27 +68,27 @@
 :root {
   --radius: 0.625rem;
   /* SmartWarehouse — brand palette (light, yellow-forward) */
-  --background: oklch(1 0 0);                       /* #FFFFFF */
-  --foreground: oklch(0.21 0.034 264);              /* #111827 */
+  --background: oklch(1 0 0); /* #FFFFFF */
+  --foreground: oklch(0.21 0.034 264); /* #111827 */
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.21 0.034 264);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.21 0.034 264);
-  --primary: oklch(0.85 0.17 90);                   /* #FBC400 amarillo primario */
-  --primary-foreground: oklch(0.21 0.034 264);      /* texto oscuro sobre amarillo */
-  --secondary: oklch(0.97 0.005 250);               /* #F5F6F8 gris superficie */
+  --primary: oklch(0.85 0.17 90); /* #FBC400 amarillo primario */
+  --primary-foreground: oklch(0.21 0.034 264); /* texto oscuro sobre amarillo */
+  --secondary: oklch(0.97 0.005 250); /* #F5F6F8 gris superficie */
   --secondary-foreground: oklch(0.21 0.034 264);
   --muted: oklch(0.97 0.005 250);
-  --muted-foreground: oklch(0.45 0.02 260);         /* #6B7280 */
-  --accent: oklch(0.97 0.04 95);                    /* #FFF8D7 amarillo suave */
-  --accent-foreground: oklch(0.55 0.13 75);         /* #B77900 amarillo oscuro */
+  --muted-foreground: oklch(0.45 0.02 260); /* #6B7280 */
+  --accent: oklch(0.97 0.04 95); /* #FFF8D7 amarillo suave */
+  --accent-foreground: oklch(0.55 0.13 75); /* #B77900 amarillo oscuro */
   --destructive: oklch(0.6 0.22 27);
   --destructive-foreground: oklch(1 0 0);
   --success: oklch(0.65 0.17 150);
-  --warning: oklch(0.55 0.13 75);                  /* #B77900 amarillo oscuro */
-  --info: oklch(0.55 0.21 264);                    /* #2563EB azul link */
+  --warning: oklch(0.55 0.13 75); /* #B77900 amarillo oscuro */
+  --info: oklch(0.55 0.21 264); /* #2563EB azul link */
   --info-foreground: oklch(1 0 0);
-  --border: oklch(0.87 0.01 260);                   /* #D1D5DB */
+  --border: oklch(0.87 0.01 260); /* #D1D5DB */
   --input: oklch(0.87 0.01 260);
   --ring: oklch(0.85 0.17 90);
   --gradient-primary: linear-gradient(135deg, oklch(0.88 0.17 92), oklch(0.78 0.16 78));

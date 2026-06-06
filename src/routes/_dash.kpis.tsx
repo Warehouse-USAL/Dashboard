@@ -1,8 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Battery, Gauge, TrendingUp, Zap } from "lucide-react";
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
 import { batteryTone, throughput, useLiveRovers, utilization } from "@/lib/dashboard-data";
@@ -40,7 +50,12 @@ function KpisPage() {
       </div>
 
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Panel title="Órdenes completadas / hora" subtitle="Últimas 24 horas" icon={Gauge} className="xl:col-span-2">
+        <Panel
+          title="Órdenes completadas / hora"
+          subtitle="Últimas 24 horas"
+          icon={Gauge}
+          className="xl:col-span-2"
+        >
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={throughput}>
               <defs>
@@ -53,7 +68,13 @@ function KpisPage() {
               <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={11} />
               <YAxis stroke="oklch(0.7 0.02 240)" fontSize={11} />
               <Tooltip {...tooltip} />
-              <Area type="monotone" dataKey="ordenes" stroke="oklch(0.78 0.18 180)" strokeWidth={2} fill="url(#g1)" />
+              <Area
+                type="monotone"
+                dataKey="ordenes"
+                stroke="oklch(0.78 0.18 180)"
+                strokeWidth={2}
+                fill="url(#g1)"
+              />
             </AreaChart>
           </ResponsiveContainer>
         </Panel>
@@ -61,8 +82,16 @@ function KpisPage() {
         <Panel title="Uso de Rovers" subtitle="Distribución actual" icon={Zap}>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={utilization} innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
-                {utilization.map((u) => <Cell key={u.name} fill={u.color} stroke="none" />)}
+              <Pie
+                data={utilization}
+                innerRadius={50}
+                outerRadius={80}
+                paddingAngle={3}
+                dataKey="value"
+              >
+                {utilization.map((u) => (
+                  <Cell key={u.name} fill={u.color} stroke="none" />
+                ))}
               </Pie>
               <Tooltip {...tooltip} />
             </PieChart>
@@ -102,10 +131,15 @@ function KpisPage() {
                 <div key={r.id}>
                   <div className="flex justify-between items-center text-xs mb-1.5">
                     <span className="font-medium">{r.id}</span>
-                    <span className={`${bt.color} font-semibold`}>{bt.label} · {Math.round(r.battery)}%</span>
+                    <span className={`${bt.color} font-semibold`}>
+                      {bt.label} · {Math.round(r.battery)}%
+                    </span>
                   </div>
                   <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                    <div className={`h-full ${bt.bar} transition-all`} style={{ width: `${r.battery}%` }} />
+                    <div
+                      className={`h-full ${bt.bar} transition-all`}
+                      style={{ width: `${r.battery}%` }}
+                    />
                   </div>
                 </div>
               );
@@ -117,9 +151,20 @@ function KpisPage() {
   );
 }
 
-function Stat({ icon: Icon, label, value }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string }) {
+function Stat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
   return (
-    <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-4" style={{ background: "var(--gradient-surface)" }}>
+    <div
+      className="rounded-xl border border-border bg-card p-5 flex items-center gap-4"
+      style={{ background: "var(--gradient-surface)" }}
+    >
       <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
         <Icon className="w-5 h-5" />
       </div>

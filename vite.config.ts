@@ -6,6 +6,9 @@
 // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8090";
+const backendWsUrl = backendUrl.replace(/^http/, "ws");
+
 // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
 // @cloudflare/vite-plugin builds from this — wrangler.jsonc main alone is insufficient.
 export default defineConfig({
@@ -15,11 +18,11 @@ export default defineConfig({
   vite: {
     server: {
       proxy: {
-        "/auth":     { target: "http://localhost:8090", changeOrigin: true },
-        "/vehicles": { target: "http://localhost:8090", changeOrigin: true },
-        "/orders":   { target: "http://localhost:8090", changeOrigin: true },
-        "/products": { target: "http://localhost:8090", changeOrigin: true },
-        "/ws":       { target: "ws://localhost:8090",   ws: true, changeOrigin: true },
+        "/auth": { target: backendUrl, changeOrigin: true },
+        "/vehicles": { target: backendUrl, changeOrigin: true },
+        "/orders": { target: backendUrl, changeOrigin: true },
+        "/products": { target: backendUrl, changeOrigin: true },
+        "/ws": { target: backendWsUrl, ws: true, changeOrigin: true },
       },
     },
   },
