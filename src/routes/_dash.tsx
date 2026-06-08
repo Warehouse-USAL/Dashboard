@@ -5,10 +5,9 @@ import {
   CircuitBoard,
   LayoutDashboard,
   ListChecks,
-  Map as MapIcon,
   PackageSearch,
   Settings,
-  TrendingUp,
+  Truck,
 } from "lucide-react";
 import { alerts } from "@/lib/dashboard-data";
 import logoUrl from "@/assets/smartwarehouse-logo.png";
@@ -18,12 +17,11 @@ export const Route = createFileRoute("/_dash")({
 });
 
 const nav = [
-  { to: "/", icon: LayoutDashboard, label: "Resumen" },
-  { to: "/mapa", icon: MapIcon, label: "Mapa en vivo" },
-  { to: "/ordenes", icon: ListChecks, label: "Órdenes" },
+  { to: "/home", icon: LayoutDashboard, label: "Home" },
+  { to: "/ordenes-v2", icon: ListChecks, label: "Órdenes" },
+  { to: "/vehiculos-v2", icon: Truck, label: "Vehículos" },
   { to: "/inventario", icon: PackageSearch, label: "Inventario" },
   { to: "/alertas", icon: Bell, label: "Alertas", badge: alerts.length },
-  { to: "/kpis", icon: TrendingUp, label: "KPIs" },
   { to: "/configuracion", icon: Settings, label: "Configuración" },
 ] as const;
 

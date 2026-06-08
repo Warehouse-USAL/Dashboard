@@ -17,6 +17,7 @@ export type FrontendProduct = {
   name: string;
   zone: string;
   available: number;
+  reserved: number;
   status: "ok" | "bajo" | "agotado";
 };
 
@@ -166,12 +167,14 @@ function mapProduct(p: BackendProduct): FrontendProduct {
     stockObj?.minimum_stock ??
     0;
 
+  const reserved = stockObj?.reserved ?? 0;
+
   const zone = [p.location?.zone, p.location?.line].filter(Boolean).join("-");
 
   const status: FrontendProduct["status"] =
     available === 0 ? "agotado" : available <= minimum ? "bajo" : "ok";
 
-  return { sku: p.sku, name: p.name, zone: zone || "—", available, status };
+  return { sku: p.sku, name: p.name, zone: zone || "—", available, reserved, status };
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -212,7 +215,7 @@ export async function getProducts(): Promise<FrontendProduct[]> {
     return list.map(mapProduct);
   } catch (err) {
     console.error("[api] getProducts → mock:", err);
-    return mockStock.map((s) => ({ ...s, status: s.status as FrontendProduct["status"] }));
+    return mockStock.map((s) => ({ ...s, reserved: 0, status: s.status as FrontendProduct["status"] }));
   }
 }
 
