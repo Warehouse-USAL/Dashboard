@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push *)",
+      "Bash(git branch *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\facud\\\\OneDrive\\\\Desktop\\\\D2\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "Read(//c/Users/facud/OneDrive/Desktop/D2/**)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\facud\\\\OneDrive\\\\Desktop\\\\D2\\\\src\\\\components\\\\dashboard\\\\WarehouseMap.tsx\" \"c:\\\\Users\\\\facud\\\\Dashboard\\\\src\\\\components\\\\dashboard\\\\WarehouseMap.tsx\" -Force)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\facud\\\\OneDrive\\\\Desktop\\\\D2\\\\src\\\\routes\\\\_dash.home.tsx\" \"c:\\\\Users\\\\facud\\\\Dashboard\\\\src\\\\routes\\\\_dash.home.tsx\" -Force)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\facud\\\\OneDrive\\\\Desktop\\\\D2\\\\src\\\\routes\\\\_dash.ordenes-v2.tsx\" \"c:\\\\Users\\\\facud\\\\Dashboard\\\\src\\\\routes\\\\_dash.ordenes-v2.tsx\" -Force)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\facud\\\\OneDrive\\\\Desktop\\\\D2\\\\src\\\\routes\\\\_dash.vehiculos-v2.tsx\" \"c:\\\\Users\\\\facud\\\\Dashboard\\\\src\\\\routes\\\\_dash.vehiculos-v2.tsx\" -Force)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\facud\\\\OneDrive\\\\Desktop\\\\D2\\\\src\\\\routes\\\\_dash.mapa.tsx\" \"c:\\\\Users\\\\facud\\\\Dashboard\\\\src\\\\routes\\\\_dash.mapa.tsx\" -Force)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\facud\\\\OneDrive\\\\Desktop\\\\Dash Pres\\\\src\\\\routes\\\\\" -File | Select-Object Name)",
+      "Bash(cd \"C:\\\\Users\\\\facud\\\\OneDrive\\\\Desktop\\\\Dash Pres\\\\src\\\\routes\\\\\" && ls -Name)",
+      "Read(//c/Users/facud/OneDrive/Desktop/Dash Pres/src/**)",
+      "Bash(find '/c/Users/facud/OneDrive/Desktop' -type d -name 'Dash Pres' 2>/dev/null)",
+      "Read(//c/Users/facud/OneDrive/Desktop/**)",
+      "Bash(npx tsc *)",
+      "Bash(node_modules/.bin/tsc --noEmit)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\facud\\OneDrive\\Desktop\\D2\\src\\routes"
+    ]
+  }
+}
