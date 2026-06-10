@@ -219,13 +219,13 @@ export async function getProducts(): Promise<FrontendProduct[]> {
   }
 }
 
-export async function getWsUrl(): Promise<string> {
+export async function getWsUrl(path: string = "/ws/v1/vehicles"): Promise<string> {
   const token = await getToken();
   if (!BASE_URL) {
     const proto = typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
     const host  = typeof location !== "undefined" ? location.host : "localhost:8084";
-    return `${proto}//${host}/ws/v1/vehicles?token=${token}`;
+    return `${proto}//${host}${path}?token=${token}`;
   }
   const wsBase = BASE_URL.replace(/^https/, "wss").replace(/^http/, "ws");
-  return `${wsBase}/ws/v1/vehicles?token=${token}`;
+  return `${wsBase}${path}?token=${token}`;
 }
