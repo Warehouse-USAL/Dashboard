@@ -10,6 +10,10 @@ export type FrontendOrder = {
   priority: string;
   state: string;
   rover: string;
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  cancelReason?: string;
 };
 
 export type FrontendProduct = {
@@ -30,7 +34,7 @@ async function login(): Promise<string> {
   const res = await fetch(`${BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "admin@sw.com", password: "admin123" }),
+    body: JSON.stringify({ email: "admin@test.com", password: "admin123" }),
   });
   if (!res.ok) throw new Error(`Login failed: ${res.status}`);
   const body = (await res.json()) as { token: string };
@@ -106,6 +110,8 @@ interface BackendOrder {
   status?: string;
   items?: BackendOrderItem[];
   assignedVehicleId?: string | null;
+  timestamps?: { created_at?: string; started_at?: string; completed_at?: string };
+  cancel_reason?: string | null;
   // fallbacks por si el back cambia de nuevo
   product?: string;
   product_sku?: string;
@@ -135,6 +141,10 @@ function mapOrder(o: BackendOrder): FrontendOrder {
     priority: o.priority ?? "media",
     state: orderStatusMap[rawState] ?? rawState,
     rover,
+    createdAt: o.timestamps?.created_at,
+    startedAt: o.timestamps?.started_at,
+    completedAt: o.timestamps?.completed_at,
+    cancelReason: o.cancel_reason ?? undefined,
   };
 }
 

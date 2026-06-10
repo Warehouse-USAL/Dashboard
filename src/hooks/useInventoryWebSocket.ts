@@ -13,17 +13,15 @@ export function useInventoryWebSocket() {
     async function connect() {
       if (destroyed) return;
       try {
-        const url = await getWsUrl("/ws/v1/events");
+        const url = await getWsUrl("/ws/v1/stock/alerts");
         const ws = new WebSocket(url);
         wsRef.current = ws;
 
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data as string) as { event: string };
-            if (msg.event?.startsWith("product.")) {
+            if (msg.event?.startsWith("stock.")) {
               queryClient.invalidateQueries({ queryKey: ["products"] });
-            } else if (msg.event?.startsWith("order.")) {
-              queryClient.invalidateQueries({ queryKey: ["orders"] });
             }
           } catch {
             // ignore malformed messages

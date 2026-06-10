@@ -12,6 +12,8 @@ import {
 import { alerts } from "@/lib/dashboard-data";
 import logoUrl from "@/assets/smartwarehouse-logo.png";
 import { useInventoryWebSocket } from "@/hooks/useInventoryWebSocket";
+import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
+import { useOrderWebSocket } from "@/hooks/useOrderWebSocket";
 
 export const Route = createFileRoute("/_dash")({
   component: DashLayout,
@@ -31,6 +33,8 @@ function DashLayout() {
   const [now, setNow] = useState<string>("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   useInventoryWebSocket();
+  useVehicleWebSocket();
+  useOrderWebSocket();
 
   useEffect(() => {
     const tick = () => setNow(new Date().toLocaleTimeString("es-AR"));

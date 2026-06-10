@@ -11,8 +11,9 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 import { useVehicles } from "@/hooks/useVehicles";
-import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
+import { useOrders } from "@/hooks/useOrders";
 import type { Rover, RoverState } from "@/lib/dashboard-data";
+import type { FrontendOrder } from "@/lib/api";
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
@@ -115,35 +116,74 @@ const PARETO_BY_PERIOD: Record<DataPeriodId, Array<{label:string;pct:number;colo
   ],
 };
 
-const ACTIVIDAD_BY_PERIOD: Record<DataPeriodId, Array<{h:string;ordenes:number;rovers:number}>> = {
-  "24h": Array.from({ length: 13 }, (_, i) => {
-    const h = i * 2;
-    return {
-      h: `${String(h).padStart(2, "0")}:00`,
-      ordenes: [4, 3, 5, 12, 22, 28, 31, 28, 24, 26, 19, 12, 6][i],
-      rovers:  [1, 1, 2, 2,  3,  3,  3,  3,  3,  3,  2,  2,  1][i],
-    };
-  }),
-  "7d": ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map((d, i) => ({
-    h: d,
-    ordenes: [180, 210, 195, 240, 260, 140, 90][i],
-    rovers:  [3, 3, 3, 3, 3, 2, 2][i],
-  })),
-  "30d": Array.from({ length: 6 }, (_, i) => ({
-    h: `Sem ${i + 1}`,
-    ordenes: [1100, 1240, 1180, 1320, 1410, 1260][i],
-    rovers:  [3, 3, 3, 3, 3, 3][i],
-  })),
-  "90d": ["Mar","Abr","May"].map((m, i) => ({
-    h: m,
-    ordenes: [4800, 5120, 5340][i],
-    rovers:  [3, 3, 3][i],
-  })),
-};
+const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"] as const;
+const MONTH_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"] as const;
+
+// TODO: rovers usa snapshot actual — rastreo histórico no disponible via WS
+function buildActividad(
+  orders: FrontendOrder[],
+  period: DataPeriodId,
+  activeRovers: number,
+): Array<{ h: string; ordenes: number; rovers: number }> {
+  const completed = orders.filter((o) => o.state === "completada" && o.completedAt);
+
+  if (period === "24h") {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return Array.from({ length: 13 }, (_, i) => {
+      const h = i * 2;
+      const slotStart = today.getTime() + h * 3_600_000;
+      const count = completed.filter((o) => {
+        const t = new Date(o.completedAt!).getTime();
+        return t >= slotStart && t < slotStart + 7_200_000;
+      }).length;
+      return { h: `${String(h).padStart(2, "0")}:00`, ordenes: count, rovers: activeRovers };
+    });
+  }
+
+  if (period === "7d") {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(); d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - (6 - i));
+      const slotStart = d.getTime();
+      const count = completed.filter((o) => {
+        const t = new Date(o.completedAt!).getTime();
+        return t >= slotStart && t < slotStart + 86_400_000;
+      }).length;
+      return { h: DAY_NAMES[d.getDay()], ordenes: count, rovers: activeRovers };
+    });
+  }
+
+  if (period === "30d") {
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(); d.setHours(23, 59, 59, 999);
+      d.setDate(d.getDate() - i * 7);
+      const weekEnd = d.getTime();
+      const weekStart = weekEnd - 7 * 86_400_000 + 1;
+      const count = completed.filter((o) => {
+        const t = new Date(o.completedAt!).getTime();
+        return t >= weekStart && t <= weekEnd;
+      }).length;
+      return { h: `Sem ${6 - i}`, ordenes: count, rovers: activeRovers };
+    }).reverse();
+  }
+
+  // 90d: últimos 3 meses
+  const now = new Date();
+  return Array.from({ length: 3 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (2 - i), 1);
+    const monthStart = d.getTime();
+    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
+    const count = completed.filter((o) => {
+      const t = new Date(o.completedAt!).getTime();
+      return t >= monthStart && t <= monthEnd;
+    }).length;
+    return { h: MONTH_NAMES[d.getMonth()], ordenes: count, rovers: activeRovers };
+  });
+}
 
 function RoversPage() {
   const { data: rovers } = useVehicles();
-  useVehicleWebSocket();
+  const { data: orders } = useOrders();
 
   const [period, setPeriod] = useState<PeriodId>("24h");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
@@ -175,21 +215,23 @@ function RoversPage() {
   const utilizacion = totalRovers
     ? Math.round((rovers.filter((r) => r.order).length / totalRovers) * 100)
     : 0;
-  const horasTotales = rovers.reduce((a, r) => a + r.hours, 0);
-  const ordenesCompletadas = ACTIVIDAD_BY_PERIOD[dataPeriod].reduce((a, x) => a + x.ordenes, 0);
+  const ordenesCompletadas = orders.filter((o) => o.state === "completada").length;
 
   const kpis = [
     { icon: Truck,      label: "Rovers activos",       value: `${activos}`, suffix: ` / ${totalRovers}`, sub: `${Math.round((activos/Math.max(totalRovers,1))*100)}% del total`, tone: "primary" as const },
     { icon: Activity,   label: "Disponibilidad",       value: `${disponibilidad}%`, sub: `${cargando} cargando · ${detenidos} detenidos`, tone: "success" as const },
     { icon: Zap,        label: "Utilización de flota", value: `${utilizacion}%`,    sub: "Rovers con orden asignada",     tone: "warning" as const },
-    { icon: Clock,      label: "MTBF",                 value: "48.6 h",             sub: "Prom. entre fallas",            tone: "info" as const },
-    { icon: Wrench,     label: "MTTR",                 value: "18.7 min",           sub: "Prom. reparación",              tone: "warning" as const },
-    { icon: TrendingUp, label: "Productividad",        value: ordenesCompletadas.toLocaleString("es-AR"), sub: "Órdenes completadas", tone: "primary" as const },
+    { icon: Clock,      label: "MTBF",       value: "—", sub: "Sin historial de fallas",  tone: "info" as const },    // TODO: backend no persiste historial de errores — no existe en RFC
+    { icon: Wrench,     label: "MTTR",       value: "—", sub: "Sin historial de fallas",  tone: "warning" as const }, // TODO: backend no persiste historial de errores — no existe en RFC
+    { icon: TrendingUp, label: "Productividad", value: ordenesCompletadas.toLocaleString("es-AR"), sub: "Órdenes completadas", tone: "primary" as const },
   ];
 
-  const historial = HISTORIAL_BY_PERIOD[dataPeriod];
-  const pareto = PARETO_BY_PERIOD[dataPeriod];
-  const actividad = ACTIVIDAD_BY_PERIOD[dataPeriod];
+  const historial = HISTORIAL_BY_PERIOD[dataPeriod]; // TODO: backend no persiste historial de errores — no existe en RFC
+  const pareto = PARETO_BY_PERIOD[dataPeriod];       // TODO: backend no persiste historial de errores — no existe en RFC
+  const actividad = useMemo(
+    () => buildActividad(orders, dataPeriod, activos),
+    [orders, dataPeriod, activos],
+  );
 
   return (
     <div className="space-y-5">
@@ -233,7 +275,7 @@ function RoversPage() {
       </Panel>
 
       {/* Productividad por rover */}
-      <ProductividadPorRover rovers={rovers} totalOrdenes={ordenesCompletadas} period={period} range={customRange} />
+      <ProductividadPorRover rovers={rovers} orders={orders} period={period} range={customRange} />
 
       {/* Histórico + Pareto + Actividad */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -303,7 +345,7 @@ function RoversPage() {
       </div>
 
       <p className="text-[10px] text-muted-foreground text-right">
-        Datos de rovers en tiempo real · {horasTotales.toFixed(1)} horas acumuladas hoy
+        Datos de rovers en tiempo real
       </p>
     </div>
   );
@@ -328,7 +370,7 @@ function RoverRow({ r }: { r: Rover }) {
       </td>
       <td className="py-3 px-2 text-xs">{r.zone}</td>
       <td className="py-3 px-2 text-xs">{r.order ?? "—"}</td>
-      <td className="py-3 px-2 text-xs text-right text-muted-foreground">{r.hours.toFixed(1)} h</td>
+      <td className="py-3 px-2 text-xs text-right text-muted-foreground">—</td>{/* horas: no existe en RFC */}
     </tr>
   );
 }
@@ -511,32 +553,26 @@ function FilterMenu({
   );
 }
 
-// Productividad por rover (órdenes completadas + eficiencia para cumplir la orden)
+// Productividad por rover: órdenes completadas y eficiencia desde GET /orders
 function ProductividadPorRover({
-  rovers, totalOrdenes, period, range,
+  rovers, orders, period, range,
 }: {
   rovers: Rover[];
-  totalOrdenes: number;
+  orders: FrontendOrder[];
   period: PeriodId;
   range?: DateRange;
 }) {
-  // Reparto determinístico de órdenes por rover según estado y batería.
-  const weights = rovers.map((r) => {
-    const base = r.state === "activo" ? 1 : r.state === "cargando" ? 0.45 : r.state === "detenido" ? 0.15 : 0.25;
-    return base * (0.6 + r.battery / 250); // 0.6–1.0 aprox
-  });
-  const totalW = weights.reduce((a, b) => a + b, 0) || 1;
-
-  const rows = rovers.map((r, i) => {
-    const ordenes = Math.round((weights[i] / totalW) * totalOrdenes);
-    // Eficiencia: % de órdenes cumplidas exitosamente (sintética según estado y batería)
-    const efBase =
-      r.state === "activo" ? 90 :
-      r.state === "cargando" ? 70 :
-      r.state === "detenido" ? 45 : 60;
-    const eficiencia = Math.max(30, Math.min(99, Math.round(efBase + (r.battery - 50) / 5)));
-    return { id: r.id, ordenes, eficiencia };
-  });
+  const rows = useMemo(
+    () =>
+      rovers.map((r) => {
+        const roverOrders = orders.filter((o) => o.rover === r.id);
+        const completed = roverOrders.filter((o) => o.state === "completada").length;
+        const total = roverOrders.length;
+        const eficiencia = total > 0 ? Math.round((completed / total) * 100) : 0;
+        return { id: r.id, ordenes: completed, eficiencia };
+      }),
+    [rovers, orders],
+  );
 
   const maxOrdenes = Math.max(1, ...rows.map((r) => r.ordenes));
 
@@ -582,7 +618,7 @@ function ProductividadPorRover({
         </table>
       </div>
       <p className="text-[10px] text-muted-foreground mt-3">
-        Eficiencia = % de órdenes cumplidas exitosamente sobre asignadas en el período.
+        Eficiencia = completadas / total asignadas × 100. Fuente: GET /orders.
       </p>
     </Panel>
   );

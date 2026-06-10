@@ -49,11 +49,6 @@ const LEGACY_STATE_MAP: Record<string, OrderState> = {
   "cancelada":  "cancelled",
 };
 
-const PRIORITY_FILTERS: { id: Priority; label: string }[] = [
-  { id: "alta",  label: "Alta"  },
-  { id: "media", label: "Media" },
-  { id: "baja",  label: "Baja"  },
-];
 const STATE_FILTERS: { id: OrderState; label: string }[] = (Object.keys(STATE_LABELS) as OrderState[]).map((id) => ({ id, label: STATE_LABELS[id] }));
 
 function periodLabel(value: PeriodId, range?: DateRange) {
@@ -65,53 +60,7 @@ function periodLabel(value: PeriodId, range?: DateRange) {
   return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
 }
 
-// --- datasets sintéticos por período ---
-
-const KPIS_BY_PERIOD: Record<DataPeriodId, { ordHora: number; ordHoraDelta: number; cycle: number; cycleDelta: number; sla: number; slaDelta: number; total: number }> = {
-  "24h": { ordHora: 124, ordHoraDelta: 8,   cycle: 18.6, cycleDelta: -2.1, sla: 96.4, slaDelta: 1.3, total: 2976 },
-  "7d":  { ordHora: 118, ordHoraDelta: 4,   cycle: 19.4, cycleDelta: -1.2, sla: 95.8, slaDelta: 0.6, total: 19824 },
-  "30d": { ordHora: 121, ordHoraDelta: 2,   cycle: 19.0, cycleDelta: -0.8, sla: 96.0, slaDelta: 0.9, total: 87120 },
-  "90d": { ordHora: 119, ordHoraDelta: -1,  cycle: 19.7, cycleDelta:  0.3, sla: 95.2, slaDelta: -0.2, total: 257040 },
-};
-
-const DISTRIBUCION_BY_PERIOD: Record<DataPeriodId, Record<OrderState, number>> = {
-  "24h": { pending: 93, in_progress: 32, completed: 12, cancelled: 5 },
-  "7d":  { pending: 480, in_progress: 210, completed: 1840, cancelled: 62 },
-  "30d": { pending: 1240, in_progress: 640, completed: 8120, cancelled: 244 },
-  "90d": { pending: 3210, in_progress: 1840, completed: 23890, cancelled: 712 },
-};
-
-const AGING_BY_PERIOD: Record<DataPeriodId, Array<{ bucket: string; value: number; tone: string }>> = {
-  "24h": [
-    { bucket: "< 5 min",  value: 42, tone: "bg-emerald-500" },
-    { bucket: "5 - 15 min", value: 28, tone: "bg-emerald-500" },
-    { bucket: "15 - 30 min", value: 15, tone: "bg-amber-400" },
-    { bucket: "30 - 60 min", value: 6,  tone: "bg-amber-500" },
-    { bucket: "> 60 min", value: 2,  tone: "bg-rose-500" },
-  ],
-  "7d": [
-    { bucket: "< 5 min",  value: 184, tone: "bg-emerald-500" },
-    { bucket: "5 - 15 min", value: 142, tone: "bg-emerald-500" },
-    { bucket: "15 - 30 min", value: 78,  tone: "bg-amber-400" },
-    { bucket: "30 - 60 min", value: 34,  tone: "bg-amber-500" },
-    { bucket: "> 60 min", value: 12,  tone: "bg-rose-500" },
-  ],
-  "30d": [
-    { bucket: "< 5 min",  value: 612, tone: "bg-emerald-500" },
-    { bucket: "5 - 15 min", value: 488, tone: "bg-emerald-500" },
-    { bucket: "15 - 30 min", value: 246, tone: "bg-amber-400" },
-    { bucket: "30 - 60 min", value: 110, tone: "bg-amber-500" },
-    { bucket: "> 60 min", value: 38,  tone: "bg-rose-500" },
-  ],
-  "90d": [
-    { bucket: "< 5 min",  value: 1840, tone: "bg-emerald-500" },
-    { bucket: "5 - 15 min", value: 1420, tone: "bg-emerald-500" },
-    { bucket: "15 - 30 min", value: 720,  tone: "bg-amber-400" },
-    { bucket: "30 - 60 min", value: 340,  tone: "bg-amber-500" },
-    { bucket: "> 60 min", value: 124,  tone: "bg-rose-500" },
-  ],
-};
-
+// TODO: tasa de reintentos — endpoint no existe en RFC
 const REINTENTOS_BY_PERIOD: Record<DataPeriodId, { pct: number; n: number }> = {
   "24h": { pct: 2.3, n: 3 },
   "7d":  { pct: 2.1, n: 18 },
@@ -119,22 +68,7 @@ const REINTENTOS_BY_PERIOD: Record<DataPeriodId, { pct: number; n: number }> = {
   "90d": { pct: 2.0, n: 212 },
 };
 
-const CUMPLIMIENTO_BY_PERIOD: Record<DataPeriodId, { pct: number; delta: number }> = {
-  "24h": { pct: 97.6, delta:  1.2 },
-  "7d":  { pct: 96.8, delta:  0.6 },
-  "30d": { pct: 96.4, delta:  0.4 },
-  "90d": { pct: 95.9, delta: -0.1 },
-};
-
-const HORAS_BY_PERIOD: Record<DataPeriodId, Array<{ h: string; ordenes: number }>> = {
-  "24h": ["00:00","02:00","04:00","06:00","08:00","10:00","12:00","14:00","16:00","18:00","20:00","22:00"].map((h, i) => ({
-    h, ordenes: [22,18,15,28,72,128,162,158,148,118,76,42][i],
-  })),
-  "7d": ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map((d, i) => ({ h: d, ordenes: [820,910,880,950,1020,640,420][i] })),
-  "30d": Array.from({ length: 6 }, (_, i) => ({ h: `Sem ${i + 1}`, ordenes: [4200,4480,4310,4720,4910,4560][i] })),
-  "90d": ["Mar","Abr","May"].map((m, i) => ({ h: m, ordenes: [18800, 19420, 20140][i] })),
-};
-
+// TODO: campo priority no existe en RFC — donut mockeado
 const PRIORIDAD_BY_PERIOD: Record<DataPeriodId, { alta: number; media: number; baja: number }> = {
   "24h": { alta: 45, media: 48, baja: 32 },
   "7d":  { alta: 312, media: 340, baja: 218 },
@@ -142,37 +76,49 @@ const PRIORIDAD_BY_PERIOD: Record<DataPeriodId, { alta: number; media: number; b
   "90d": { alta: 3920, media: 4310, baja: 2780 },
 };
 
-// histórico sintético (en producción vendría del backend filtrado por rango)
-type HistRow = { offsetH: number; orden: string; producto: string; qty: number; priority: Priority; state: OrderState; rover: string; tiempo: string; queue: string; motivo: string };
-// offsetH = horas atrás desde "ahora"; cubre 24h / 7d / 30d / 90d para que cada período muestre filas
-const HISTORICO: HistRow[] = [
-  // últimas 24h
-  { offsetH: 1,    orden: "OR-12511", producto: "SKU-A102 · Caja 24u", qty: 2, priority: "alta",  state: "completed", rover: "R-01", tiempo: "16 min", queue: "4 min",  motivo: "—" },
-  { offsetH: 3,    orden: "OR-12510", producto: "SKU-B441 · Pallet",   qty: 1, priority: "alta",  state: "completed", rover: "R-02", tiempo: "21 min", queue: "6 min",  motivo: "—" },
-  { offsetH: 6,    orden: "OR-12509", producto: "SKU-C019 · Caja 12u", qty: 5, priority: "media", state: "cancelled", rover: "R-03", tiempo: "—",      queue: "12 min", motivo: "Producto no encontrado" },
-  { offsetH: 10,   orden: "OR-12508", producto: "SKU-D227 · Bulto",    qty: 2, priority: "baja",  state: "completed", rover: "R-04", tiempo: "14 min", queue: "3 min",  motivo: "—" },
-  { offsetH: 14,   orden: "OR-12507", producto: "SKU-E308 · Pallet",   qty: 1, priority: "alta",  state: "completed", rover: "R-01", tiempo: "18 min", queue: "5 min",  motivo: "—" },
-  { offsetH: 18,   orden: "OR-12506", producto: "SKU-A102 · Caja 24u", qty: 3, priority: "media", state: "completed", rover: "R-02", tiempo: "15 min", queue: "2 min",  motivo: "—" },
-  { offsetH: 22,   orden: "OR-12505", producto: "SKU-B441 · Pallet",   qty: 1, priority: "baja",  state: "completed", rover: "R-05", tiempo: "22 min", queue: "9 min",  motivo: "—" },
-  // 1 - 7 días
-  { offsetH: 30,   orden: "OR-12498", producto: "SKU-C019 · Caja 12u", qty: 4, priority: "media", state: "cancelled", rover: "R-03", tiempo: "—",      queue: "8 min",  motivo: "Stock insuficiente" },
-  { offsetH: 48,   orden: "OR-12492", producto: "SKU-A102 · Caja 24u", qty: 6, priority: "alta",  state: "completed", rover: "R-01", tiempo: "17 min", queue: "5 min",  motivo: "—" },
-  { offsetH: 72,   orden: "OR-12485", producto: "SKU-D227 · Bulto",    qty: 2, priority: "media", state: "completed", rover: "R-04", tiempo: "13 min", queue: "2 min",  motivo: "—" },
-  { offsetH: 96,   orden: "OR-12478", producto: "SKU-E308 · Pallet",   qty: 1, priority: "baja",  state: "completed", rover: "R-02", tiempo: "19 min", queue: "7 min",  motivo: "—" },
-  { offsetH: 120,  orden: "OR-12470", producto: "SKU-B441 · Pallet",   qty: 3, priority: "alta",  state: "cancelled", rover: "R-05", tiempo: "—",      queue: "15 min", motivo: "Rover sin batería" },
-  { offsetH: 144,  orden: "OR-12461", producto: "SKU-A102 · Caja 24u", qty: 2, priority: "media", state: "completed", rover: "R-03", tiempo: "16 min", queue: "4 min",  motivo: "—" },
-  // 7 - 30 días
-  { offsetH: 240,  orden: "OR-12420", producto: "SKU-C019 · Caja 12u", qty: 4, priority: "baja",  state: "completed", rover: "R-01", tiempo: "20 min", queue: "6 min",  motivo: "—" },
-  { offsetH: 360,  orden: "OR-12380", producto: "SKU-D227 · Bulto",    qty: 1, priority: "alta",  state: "completed", rover: "R-02", tiempo: "14 min", queue: "3 min",  motivo: "—" },
-  { offsetH: 480,  orden: "OR-12340", producto: "SKU-E308 · Pallet",   qty: 2, priority: "media", state: "cancelled", rover: "R-04", tiempo: "—",      queue: "10 min", motivo: "Pasillo bloqueado" },
-  { offsetH: 600,  orden: "OR-12300", producto: "SKU-A102 · Caja 24u", qty: 5, priority: "media", state: "completed", rover: "R-01", tiempo: "18 min", queue: "5 min",  motivo: "—" },
-  { offsetH: 720,  orden: "OR-12250", producto: "SKU-B441 · Pallet",   qty: 1, priority: "alta",  state: "completed", rover: "R-05", tiempo: "23 min", queue: "8 min",  motivo: "—" },
-  // 30 - 90 días
-  { offsetH: 1080, orden: "OR-12100", producto: "SKU-C019 · Caja 12u", qty: 3, priority: "media", state: "completed", rover: "R-03", tiempo: "15 min", queue: "4 min",  motivo: "—" },
-  { offsetH: 1440, orden: "OR-11950", producto: "SKU-D227 · Bulto",    qty: 2, priority: "baja",  state: "completed", rover: "R-02", tiempo: "17 min", queue: "6 min",  motivo: "—" },
-  { offsetH: 1800, orden: "OR-11800", producto: "SKU-A102 · Caja 24u", qty: 4, priority: "alta",  state: "cancelled", rover: "R-04", tiempo: "—",      queue: "13 min", motivo: "Cliente canceló" },
-  { offsetH: 2160, orden: "OR-11600", producto: "SKU-E308 · Pallet",   qty: 1, priority: "media", state: "completed", rover: "R-01", tiempo: "21 min", queue: "7 min",  motivo: "—" },
-];
+const _ORD_DAY = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"] as const;
+const _ORD_MON = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"] as const;
+
+// Item 33: agrupa completedAt por franja horaria según el período
+function buildHoras(
+  orders: Array<{ state: string; completedAt?: string }>,
+  period: DataPeriodId,
+): Array<{ h: string; ordenes: number }> {
+  const done = orders.filter((o) => o.state === "completed" && o.completedAt);
+
+  if (period === "24h") {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return Array.from({ length: 12 }, (_, i) => {
+      const h = i * 2;
+      const s = today.getTime() + h * 3_600_000;
+      return { h: `${String(h).padStart(2, "0")}:00`, ordenes: done.filter((o) => { const t = new Date(o.completedAt!).getTime(); return t >= s && t < s + 7_200_000; }).length };
+    });
+  }
+
+  if (period === "7d") {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (6 - i));
+      const s = d.getTime();
+      return { h: _ORD_DAY[d.getDay()], ordenes: done.filter((o) => { const t = new Date(o.completedAt!).getTime(); return t >= s && t < s + 86_400_000; }).length };
+    });
+  }
+
+  if (period === "30d") {
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(); d.setHours(23, 59, 59, 999); d.setDate(d.getDate() - i * 7);
+      const e = d.getTime(); const s = e - 7 * 86_400_000 + 1;
+      return { h: `Sem ${6 - i}`, ordenes: done.filter((o) => { const t = new Date(o.completedAt!).getTime(); return t >= s && t <= e; }).length };
+    }).reverse();
+  }
+
+  // 90d: últimos 3 meses
+  const now = new Date();
+  return Array.from({ length: 3 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (2 - i), 1);
+    const s = d.getTime(); const e = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
+    return { h: _ORD_MON[d.getMonth()], ordenes: done.filter((o) => { const t = new Date(o.completedAt!).getTime(); return t >= s && t <= e; }).length };
+  });
+}
 
 // color tokens for charts — aligned with dashboard palette (oklch)
 const COLORS = {
@@ -233,7 +179,6 @@ function OrdenesPage() {
 
   const [period, setPeriod] = useState<PeriodId>("24h");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
-  const [priorityFilter, setPriorityFilter] = useState<Set<Priority>>(new Set(PRIORITY_FILTERS.map((p) => p.id)));
   const [stateFilter, setStateFilter] = useState<Set<OrderState>>(new Set(STATE_FILTERS.map((s) => s.id)));
   const [tableTab, setTableTab] = useState<"todas" | OrderState>("todas");
   const [q, setQ] = useState("");
@@ -246,7 +191,6 @@ function OrdenesPage() {
       return next;
     });
 
-
   const dataPeriod: DataPeriodId = useMemo(() => {
     if (period !== "custom") return period;
     if (!customRange?.from || !customRange?.to) return "30d";
@@ -257,17 +201,106 @@ function OrdenesPage() {
     return "90d";
   }, [period, customRange]);
 
-  const kpis = KPIS_BY_PERIOD[dataPeriod];
-  const distribucion = DISTRIBUCION_BY_PERIOD[dataPeriod];
-  const aging = AGING_BY_PERIOD[dataPeriod];
-  const reintentos = REINTENTOS_BY_PERIOD[dataPeriod];
-  const cumplimiento = CUMPLIMIENTO_BY_PERIOD[dataPeriod];
-  const horas = HORAS_BY_PERIOD[dataPeriod];
-  const prioridad = PRIORIDAD_BY_PERIOD[dataPeriod];
+  const histBounds = useMemo<{ from?: number; to?: number }>(() => {
+    if (period === "custom") {
+      return { from: customRange?.from?.getTime(), to: customRange?.to ? customRange.to.getTime() + 86_400_000 : undefined };
+    }
+    const now = Date.now();
+    const days = period === "24h" ? 1 : period === "7d" ? 7 : period === "30d" ? 30 : 90;
+    return { from: now - days * 86_400_000, to: now };
+  }, [period, customRange]);
+
+  // Métricas reales computadas desde GET /orders
+  const { kpis, distribucion, aging, cumplimiento, horas } = useMemo(() => {
+    const now = Date.now();
+    const SLA_MIN = 30; // umbral SLA en minutos
+
+    // Órdenes del período seleccionado (filtra por createdAt si existe)
+    const periodOrders = histBounds.from
+      ? orders.filter((o) => {
+          if (!o.createdAt) return true;
+          const t = new Date(o.createdAt).getTime();
+          return t >= histBounds.from! && t <= (histBounds.to ?? now);
+        })
+      : orders;
+
+    const completed = periodOrders.filter((o) => o.state === "completed");
+    const cancelled = periodOrders.filter((o) => o.state === "cancelled");
+
+    // Item 25 — órdenes completadas en la última hora
+    const ordHora = orders.filter((o) =>
+      o.state === "completed" && o.completedAt &&
+      new Date(o.completedAt).getTime() >= now - 3_600_000,
+    ).length;
+    const ordHoraPrev = orders.filter((o) => {
+      if (o.state !== "completed" || !o.completedAt) return false;
+      const t = new Date(o.completedAt).getTime();
+      return t >= now - 7_200_000 && t < now - 3_600_000;
+    }).length;
+    const ordHoraDelta = ordHoraPrev > 0 ? Math.round(((ordHora - ordHoraPrev) / ordHoraPrev) * 100) : 0;
+
+    // Item 26 — cycle time promedio (completed_at - created_at)
+    const withTime = completed.filter((o) => o.completedAt && o.createdAt);
+    const cycleTimes = withTime.map((o) =>
+      (new Date(o.completedAt!).getTime() - new Date(o.createdAt!).getTime()) / 60_000,
+    );
+    const avgCycle = cycleTimes.length > 0
+      ? +(cycleTimes.reduce((a, b) => a + b, 0) / cycleTimes.length).toFixed(1)
+      : 0;
+
+    // Item 27 — SLA compliance
+    const slaOk = withTime.filter((o) => {
+      const min = (new Date(o.completedAt!).getTime() - new Date(o.createdAt!).getTime()) / 60_000;
+      return min <= SLA_MIN;
+    }).length;
+    const sla = withTime.length > 0 ? +((slaOk / withTime.length) * 100).toFixed(1) : 0;
+
+    // Item 28 — total en el período
+    const total = periodOrders.length;
+
+    // Item 29 — distribución por estado
+    const distribucion: Record<OrderState, number> = { pending: 0, in_progress: 0, completed: 0, cancelled: 0 };
+    periodOrders.forEach((o) => { if (o.state in distribucion) distribucion[o.state as OrderState]++; });
+
+    // Item 30 — aging de órdenes pendientes (cola actual, no período)
+    const agingBuckets = [
+      { bucket: "< 5 min",     tone: "bg-emerald-500", value: 0 },
+      { bucket: "5 - 15 min",  tone: "bg-emerald-500", value: 0 },
+      { bucket: "15 - 30 min", tone: "bg-amber-400",   value: 0 },
+      { bucket: "30 - 60 min", tone: "bg-amber-500",   value: 0 },
+      { bucket: "> 60 min",    tone: "bg-rose-500",     value: 0 },
+    ];
+    orders.filter((o) => o.state === "pending" && o.createdAt).forEach((o) => {
+      const m = (now - new Date(o.createdAt!).getTime()) / 60_000;
+      if (m < 5) agingBuckets[0].value++;
+      else if (m < 15) agingBuckets[1].value++;
+      else if (m < 30) agingBuckets[2].value++;
+      else if (m < 60) agingBuckets[3].value++;
+      else agingBuckets[4].value++;
+    });
+
+    // Item 31 — tasa de cumplimiento
+    const cumplTotal = completed.length + cancelled.length;
+    const cumplPct = cumplTotal > 0 ? +((completed.length / cumplTotal) * 100).toFixed(1) : 0;
+
+    // Item 33 — órdenes por hora
+    const horas = buildHoras(orders, dataPeriod);
+
+    return {
+      kpis: { ordHora, ordHoraDelta, cycle: avgCycle, sla, total },
+      distribucion,
+      aging: agingBuckets,
+      cumplimiento: { pct: cumplPct },
+      horas,
+    };
+  }, [orders, histBounds, dataPeriod]);
+
+  const reintentos = REINTENTOS_BY_PERIOD[dataPeriod]; // TODO: endpoint no existe en RFC
+  const prioridad   = PRIORIDAD_BY_PERIOD[dataPeriod]; // TODO: campo priority no existe en RFC
 
   const distTotal = (Object.values(distribucion) as number[]).reduce((a, b) => a + b, 0);
   const distData = (Object.keys(distribucion) as OrderState[]).map((k) => ({ name: STATE_LABELS[k], key: k, value: distribucion[k] }));
-  const agingMax = Math.max(...aging.map((a) => a.value));
+  const agingMax = Math.max(1, ...aging.map((a) => a.value));
 
   const prioTotal = prioridad.alta + prioridad.media + prioridad.baja;
   const prioData = [
@@ -276,61 +309,61 @@ function OrdenesPage() {
     { name: "Baja",  key: "baja"  as Priority, value: prioridad.baja  },
   ];
 
+  // Item 32 — cola de órdenes (datos reales)
   const filteredTable = useMemo(
     () => orders.filter((o) => {
       if (tableTab !== "todas" && o.state !== tableTab) return false;
-      if (!priorityFilter.has(o.priority as Priority)) return false;
       if (!stateFilter.has(o.state as OrderState)) return false;
       if (q && !`${o.id} ${o.product} ${o.rover}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
     }),
-    [orders, tableTab, priorityFilter, stateFilter, q],
+    [orders, tableTab, stateFilter, q],
   );
 
-  const histBounds = useMemo<{ from?: number; to?: number }>(() => {
-    if (period === "custom") {
-      return {
-        from: customRange?.from?.getTime(),
-        to: customRange?.to ? customRange.to.getTime() + 86_400_000 : undefined,
-      };
-    }
-    const now = Date.now();
-    const days = period === "24h" ? 1 : period === "7d" ? 7 : period === "30d" ? 30 : 90;
-    return { from: now - days * 86_400_000, to: now };
-  }, [period, customRange]);
-  
-
+  // Item 34 — histórico de órdenes (datos reales con timestamps)
   const filteredHist = useMemo(() => {
-    const now = Date.now();
-    return HISTORICO
-      .map((h) => ({ ...h, t: now - h.offsetH * 3_600_000 }))
-      .filter((h) => {
-        if (!priorityFilter.has(h.priority)) return false;
-        if (!stateFilter.has(h.state)) return false;
-        if (histBounds.from !== undefined && h.t < histBounds.from) return false;
-        if (histBounds.to   !== undefined && h.t > histBounds.to)   return false;
+    return orders
+      .filter((o) => {
+        if (!stateFilter.has(o.state as OrderState)) return false;
+        if (o.createdAt) {
+          const t = new Date(o.createdAt).getTime();
+          if (histBounds.from !== undefined && t < histBounds.from) return false;
+          if (histBounds.to   !== undefined && t > histBounds.to)   return false;
+        }
         return true;
       })
-      .map((h) => ({ ...h, fecha: format(new Date(h.t), "dd/MM/yyyy HH:mm") }));
-  }, [priorityFilter, stateFilter, histBounds]);
+      .map((o) => {
+        const cMs = o.createdAt   ? new Date(o.createdAt).getTime()   : null;
+        const dMs = o.completedAt ? new Date(o.completedAt).getTime() : null;
+        const sMs = o.startedAt   ? new Date(o.startedAt).getTime()   : null;
+        return {
+          fecha:    cMs ? format(new Date(cMs), "dd/MM/yyyy HH:mm") : "—",
+          orden:    o.id,
+          producto: o.product,
+          qty:      o.qty,
+          state:    o.state as OrderState,
+          rover:    o.rover,
+          tiempo:   dMs && cMs ? `${((dMs - cMs) / 60_000).toFixed(0)} min` : "—",
+          queue:    sMs && cMs ? `${((sMs - cMs) / 60_000).toFixed(0)} min` : "—",
+          motivo:   o.cancelReason ?? "—",
+        };
+      });
+  }, [orders, stateFilter, histBounds]);
 
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-end justify-end gap-2 flex-wrap text-xs">
         <PeriodPicker value={period} onChange={setPeriod} range={customRange} onRangeChange={setCustomRange} />
-        <FilterMenu
-          priority={priorityFilter} onPriority={setPriorityFilter}
-          state={stateFilter} onState={setStateFilter}
-        />
+        <FilterMenu state={stateFilter} onState={setStateFilter} />
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard icon={Gauge}       label="Órdenes / hora"   value={kpis.ordHora.toString()}       sub={`${kpis.ordHoraDelta >= 0 ? "+" : ""}${kpis.ordHoraDelta}% vs ayer`} tone="primary"  positive={kpis.ordHoraDelta >= 0} />
-        <KpiCard icon={Timer}       label="Cycle time prom." value={`${kpis.cycle} min`}            sub={`${kpis.cycleDelta >= 0 ? "+" : ""}${kpis.cycleDelta} min vs ayer`}  tone="warning"  positive={kpis.cycleDelta <= 0} />
-        <KpiCard icon={ShieldCheck} label="SLA compliance"   value={`${kpis.sla}%`}                 sub={`${kpis.slaDelta >= 0 ? "+" : ""}${kpis.slaDelta}% vs ayer`}        tone="success"  positive={kpis.slaDelta >= 0} />
-        <KpiCard icon={ListChecks}  label="Órdenes totales"  value={kpis.total.toLocaleString("es-AR")} sub="Total en el período" tone="info" positive />
+        <KpiCard icon={Gauge}       label="Órdenes / hora"   value={kpis.ordHora.toString()}            sub={`${kpis.ordHoraDelta >= 0 ? "+" : ""}${kpis.ordHoraDelta}% vs hora anterior`} tone="primary"  positive={kpis.ordHoraDelta >= 0} />
+        <KpiCard icon={Timer}       label="Cycle time prom." value={kpis.cycle > 0 ? `${kpis.cycle} min` : "—"} sub="Prom. completadas en el período"                         tone="warning"  positive />
+        <KpiCard icon={ShieldCheck} label="SLA compliance"   value={`${kpis.sla}%`}                   sub="Completadas en ≤ 30 min"                                         tone="success"  positive={kpis.sla >= 95} />
+        <KpiCard icon={ListChecks}  label="Órdenes totales"  value={kpis.total.toLocaleString("es-AR")} sub="Total en el período"                                            tone="info"     positive />
       </div>
 
       {/* Fila 2 — distribución + aging + reintentos + cumplimiento */}
@@ -384,8 +417,8 @@ function OrdenesPage() {
         <Panel className="self-start" title="Tasa de cumplimiento">
           <div className="flex flex-col items-center justify-center py-4">
             <span className="text-3xl font-bold">{cumplimiento.pct}%</span>
-            <span className={cn("text-[11px] mt-1", cumplimiento.delta >= 0 ? "text-emerald-500" : "text-destructive")}>
-              {cumplimiento.delta >= 0 ? "+" : ""}{cumplimiento.delta}% vs ayer
+            <span className="text-[11px] mt-1 text-muted-foreground">
+              completadas / (completadas + canceladas)
             </span>
           </div>
         </Panel>
@@ -450,7 +483,7 @@ function OrdenesPage() {
                           ) : o.product}
                         </td>
                         <td className="py-3 px-2 text-xs text-right tabular-nums">×{total}</td>
-                        <td className="py-3 px-2"><PriorityBadge p={o.priority as Priority} /></td>
+                        <td className="py-3 px-2 text-xs text-muted-foreground">—</td>{/* priority: no existe en RFC */}
                         <td className="py-3 px-2"><StateBadge s={o.state as OrderState} /></td>
                         <td className="py-3 px-2 text-xs">{o.rover}</td>
                       </tr>
@@ -525,7 +558,7 @@ function OrdenesPage() {
                     <td className="py-3 px-2 text-xs font-bold">{h.orden}</td>
                     <td className="py-3 px-2 text-xs text-muted-foreground">{h.producto}</td>
                     <td className="py-3 px-2 text-xs text-right">×{h.qty}</td>
-                    <td className="py-3 px-2"><PriorityBadge p={h.priority} /></td>
+                    <td className="py-3 px-2 text-xs text-muted-foreground">—</td>{/* priority: no existe en RFC */}
                     <td className="py-3 px-2"><StateBadge s={h.state} /></td>
                     <td className="py-3 px-2 text-xs">{h.rover}</td>
                     <td className="py-3 px-2 text-xs text-right tabular-nums">{h.tiempo}</td>
@@ -617,15 +650,6 @@ function KpiCard({ icon: Icon, label, value, sub, tone, positive }: { icon: Reac
       <p className={cn("text-[10px] mt-1", positive ? "text-emerald-500" : "text-destructive")}>{sub}</p>
     </div>
   );
-}
-
-function PriorityBadge({ p }: { p: Priority }) {
-  const map: Record<Priority, string> = {
-    alta:  "border-destructive/30 bg-destructive/10 text-destructive",
-    media: "border-warning/30 bg-warning/10 text-warning",
-    baja:  "border-border bg-secondary text-muted-foreground",
-  };
-  return <span className={`text-[10px] px-2 py-0.5 rounded-full border ${map[p]}`}>{p}</span>;
 }
 
 function StateBadge({ s }: { s: OrderState }) {
@@ -757,24 +781,16 @@ function RangePicker({ range, onRangeChange }: { range?: DateRange; onRangeChang
 }
 
 function FilterMenu({
-  priority, onPriority, state, onState,
+  state, onState,
 }: {
-  priority: Set<Priority>; onPriority: (s: Set<Priority>) => void;
   state: Set<OrderState>; onState: (s: Set<OrderState>) => void;
 }) {
-  const togglePriority = (id: Priority) => {
-    const next = new Set(priority);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    onPriority(next);
-  };
   const toggleState = (id: OrderState) => {
     const next = new Set(state);
     if (next.has(id)) next.delete(id); else next.add(id);
     onState(next);
   };
-  const totalActive =
-    (priority.size < PRIORITY_FILTERS.length ? PRIORITY_FILTERS.length - priority.size : 0) +
-    (state.size < STATE_FILTERS.length ? STATE_FILTERS.length - state.size : 0);
+  const totalActive = state.size < STATE_FILTERS.length ? STATE_FILTERS.length - state.size : 0;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -783,23 +799,12 @@ function FilterMenu({
           {totalActive > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px]">{totalActive}</span>}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-60 p-2">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">Prioridad</p>
-        {PRIORITY_FILTERS.map((s) => <CheckRow key={s.id} on={priority.has(s.id)} label={s.label} onClick={() => togglePriority(s.id)} />)}
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mt-3 mb-1">Estado</p>
+      <PopoverContent align="end" className="w-52 p-2">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">Estado</p>
         {STATE_FILTERS.map((s) => <CheckRow key={s.id} on={state.has(s.id)} label={s.label} onClick={() => toggleState(s.id)} />)}
         <div className="flex justify-between mt-2 pt-2 border-t border-border">
-          <button
-            onClick={() => { onPriority(new Set()); onState(new Set()); }}
-            className="text-[11px] text-muted-foreground hover:text-foreground px-1"
-          >Limpiar</button>
-          <button
-            onClick={() => {
-              onPriority(new Set(PRIORITY_FILTERS.map((p) => p.id)));
-              onState(new Set(STATE_FILTERS.map((s) => s.id)));
-            }}
-            className="text-[11px] text-primary hover:underline px-1"
-          >Todos</button>
+          <button onClick={() => onState(new Set())} className="text-[11px] text-muted-foreground hover:text-foreground px-1">Limpiar</button>
+          <button onClick={() => onState(new Set(STATE_FILTERS.map((s) => s.id)))} className="text-[11px] text-primary hover:underline px-1">Todos</button>
         </div>
       </PopoverContent>
     </Popover>

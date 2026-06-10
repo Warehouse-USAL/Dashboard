@@ -15,11 +15,11 @@ export default defineConfig({
   vite: {
     server: {
       proxy: {
-        "/auth":     { target: "http://localhost:8090", changeOrigin: true },
-        "/vehicles": { target: "http://localhost:8090", changeOrigin: true },
-        "/orders":   { target: "http://localhost:8090", changeOrigin: true },
-        "/products": { target: "http://localhost:8090", changeOrigin: true },
-        "/ws":       { target: "ws://localhost:8090",   ws: true, changeOrigin: true },
+        "/auth":     { target: "http://localhost:8080", changeOrigin: true },
+        "/vehicles": { target: "http://localhost:8080", changeOrigin: true },
+        "/orders":   { target: "http://localhost:8080", changeOrigin: true },
+        "/products": { target: "http://localhost:8080", changeOrigin: true },
+        "/ws":       { target: "ws://localhost:8080",   ws: true, changeOrigin: true },
       },
     },
   },
