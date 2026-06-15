@@ -3,7 +3,9 @@ services:
     image: ghcr.io/warehouse-usal/dashboard:latest
     environment:
       # Dashboard reaches the backend through the reverse proxy path.
-      BACKEND_URL: ${BACKEND_URL:-/api}
+      # nginx proxy_pass needs a full upstream URL (scheme+host), not a path.
+      # The backend container is reachable by name on the shared wh-proxy network.
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8080}
     restart: always
     networks:
       - wh-proxy
