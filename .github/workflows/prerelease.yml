@@ -1,0 +1,98 @@
+name: Pre-release
+
+on:
+  push:
+    branches:
+      - "beta/**"
+      - "hotfix/**"
+
+concurrency:
+  group: prerelease-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prerelease:
+    name: Build and publish pre-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+          cache: true
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Derive pre-release tag
+        id: tag
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "Branch: $BRANCH"
+          if [[ "$BRANCH" == beta/* ]]; then
+            SERIES="${BRANCH#beta/}"
+            EXISTING=$(git tag -l "beta-${SERIES}-*" | sort -V | tail -1)
+            if [ -z "$EXISTING" ]; then
+              N=1
+            else
+              LAST_N="${EXISTING##*-}"
+              N=$((LAST_N + 1))
+            fi
+            TAG="beta-${SERIES}-${N}"
+          elif [[ "$BRANCH" == hotfix/* ]]; then
+            VERSION="${BRANCH#hotfix/}"
+            EXISTING=$(git tag -l "hotfix-${VERSION}-*" | sort -V | tail -1)
+            if [ -z "$EXISTING" ]; then
+              N=1
+            else
+              LAST_N="${EXISTING##*-}"
+              N=$((LAST_N + 1))
+            fi
+            TAG="hotfix-${VERSION}-${N}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Pre-release tag: $TAG"
+
+      - name: Run quality checks
+        run: |
+          bun run type-check
+          bun run lint
+          bun run format:check
+
+      - name: Build
+        run: bun run build
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/dashboard"
+          docker build -t "${IMAGE}:${{ steps.tag.outputs.tag }}" .
+          docker push "${IMAGE}:${{ steps.tag.outputs.tag }}"
+
+      - name: Create pre-release draft
+        uses: softprops/action-gh-release@v2
+        id: release
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Pre-release ${{ steps.tag.outputs.tag }}
+          prerelease: true
+          draft: true
+          generate_release_notes: true
+
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false --repo "${{ github.repository }}"

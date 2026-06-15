@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - master
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  skip-drafts:
+    name: Skip draft PRs
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Not a draft
+        run: echo "PR is ready for review — proceeding with CI"
+
+  validate-branch:
+    name: Validate branch model
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch naming convention
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          echo "Branch: $BRANCH"
+          if ! echo "$BRANCH" | grep -qE '^(feature|fix|enhancement|refactor|hotfix|beta|backport|dependabot)/'; then
+            echo "ERROR: Branch '$BRANCH' does not match naming conventions."
+            echo "Expected prefix: feature/, fix/, enhancement/, refactor/, hotfix/, beta/, backport/, dependabot/"
+            exit 1
+          fi
+          echo "Branch name is valid."
+
+      - name: Enforce GitFlow flow (which branches may target which)
+        run: |
+          HEAD="${{ github.head_ref }}"
+          BASE="${{ github.base_ref }}"
+          echo "Flow: $HEAD -> $BASE"
+          # master (production) is only updated through the release process:
+          #   beta/*  (release candidate) or hotfix/* (production urgency).
+          if [ "$BASE" = "master" ]; then
+            case "$HEAD" in
+              beta/*|hotfix/*) echo "OK: release path into master." ;;
+              *) echo "ERROR: only beta/* or hotfix/* may target master. Day-to-day work (feature/enhancement/fix) goes to develop."; exit 1 ;;
+            esac
+          # develop receives all day-to-day work plus automated PRs.
+          elif [ "$BASE" = "develop" ]; then
+            case "$HEAD" in
+              feature/*|enhancement/*|fix/*|refactor/*|hotfix/*|backport/*|dependabot/*) echo "OK: into develop." ;;
+              *) echo "ERROR: '$HEAD' may not target develop."; exit 1 ;;
+            esac
+          fi
+
+  type-check:
+    name: TypeScript type-check
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+          cache: true
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Type check
+        run: bun run type-check
+
+  lint:
+    name: ESLint
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+          cache: true
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Lint
+        run: bun run lint
+
+  format-check:
+    name: Prettier format check
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+          cache: true
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Format check
+        run: bun run format:check
+
+  build:
+    name: Build
+    needs: [validate-branch, type-check, lint, format-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+          cache: true
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build
+        run: bun run build
