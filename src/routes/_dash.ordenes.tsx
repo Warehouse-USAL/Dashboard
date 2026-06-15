@@ -17,17 +17,21 @@ function OrdenesPage() {
   const [tab, setTab] = useState<Tab>("todas");
   const [q, setQ] = useState("");
 
-  const filtered = useMemo(() =>
-    orders.filter((o) => {
-      if (tab !== "todas" && o.state !== tab) return false;
-      if (q && !`${o.id} ${o.product} ${o.rover}`.toLowerCase().includes(q.toLowerCase())) return false;
-      return true;
-    }), [orders, tab, q]);
+  const filtered = useMemo(
+    () =>
+      orders.filter((o) => {
+        if (tab !== "todas" && o.state !== tab) return false;
+        if (q && !`${o.id} ${o.product} ${o.rover}`.toLowerCase().includes(q.toLowerCase()))
+          return false;
+        return true;
+      }),
+    [orders, tab, q],
+  );
 
   const stats = {
-    total:   orders.length,
+    total: orders.length,
     proceso: orders.filter((o) => o.state === "en proceso").length,
-    espera:  orders.filter((o) => o.state === "en espera").length,
+    espera: orders.filter((o) => o.state === "en espera").length,
   };
 
   return (
@@ -48,16 +52,23 @@ function OrdenesPage() {
           <div className="flex gap-2">
             <div className="flex bg-secondary/40 border border-border rounded-md p-0.5">
               {tabs.map((t) => (
-                <button key={t} onClick={() => setTab(t)}
-                  className={`px-3 py-1 text-[11px] rounded ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`px-3 py-1 text-[11px] rounded ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
                   {t}
                 </button>
               ))}
             </div>
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input value={q} onChange={(e) => setQ(e.target.value)}
-                placeholder="Buscar..." className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border bg-secondary/40 focus:outline-none focus:border-primary w-40" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Buscar..."
+                className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border bg-secondary/40 focus:outline-none focus:border-primary w-40"
+              />
             </div>
           </div>
         }
@@ -81,17 +92,26 @@ function OrdenesPage() {
                   <td className="py-3 px-2 text-xs text-muted-foreground">{o.product}</td>
                   <td className="py-3 px-2 text-xs text-right">×{o.qty}</td>
                   <td className="py-3 px-2">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                      o.priority === "alta"  ? "border-destructive/30 bg-destructive/10 text-destructive"
-                      : o.priority === "media" ? "border-warning/30 bg-warning/10 text-warning"
-                      : "border-border bg-secondary text-muted-foreground"}`}>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                        o.priority === "alta"
+                          ? "border-destructive/30 bg-destructive/10 text-destructive"
+                          : o.priority === "media"
+                            ? "border-warning/30 bg-warning/10 text-warning"
+                            : "border-border bg-secondary text-muted-foreground"
+                      }`}
+                    >
                       {o.priority}
                     </span>
                   </td>
                   <td className="py-3 px-2">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                      o.state === "en proceso" ? "border-primary bg-primary text-primary-foreground"
-                      : "border-info/40 bg-info/10 text-info"}`}>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                        o.state === "en proceso"
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-info/40 bg-info/10 text-info"
+                      }`}
+                    >
                       {o.state}
                     </span>
                   </td>
@@ -99,7 +119,11 @@ function OrdenesPage() {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={6} className="text-center py-8 text-xs text-muted-foreground">Sin resultados</td></tr>
+                <tr>
+                  <td colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
+                    Sin resultados
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -109,8 +133,17 @@ function OrdenesPage() {
   );
 }
 
-function StatCard({ label, value, accent }: { label: string; value: number; accent?: "primary" | "info" }) {
-  const c = accent === "primary" ? "text-primary" : accent === "info" ? "text-info" : "text-foreground";
+function StatCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent?: "primary" | "info";
+}) {
+  const c =
+    accent === "primary" ? "text-primary" : accent === "info" ? "text-info" : "text-foreground";
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>

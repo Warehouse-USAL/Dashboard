@@ -5,7 +5,7 @@ import type { Rover } from "@/lib/dashboard-data";
 
 export function useVehicleWebSocket() {
   const queryClient = useQueryClient();
-  const wsRef  = useRef<WebSocket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function useVehicleWebSocket() {
             if (msg.event === "vehicle.updated" || msg.event === "vehicle.error") {
               const updated = mapVehicle(msg.payload);
               queryClient.setQueryData<Rover[]>(["vehicles"], (prev) =>
-                prev?.map((v) => (v.id === updated.id ? { ...v, ...updated } : v))
+                prev?.map((v) => (v.id === updated.id ? { ...v, ...updated } : v)),
               );
             }
           } catch {
