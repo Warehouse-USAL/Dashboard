@@ -2,6 +2,14 @@ services:
   dashboard:
     image: ghcr.io/warehouse-usal/dashboard:latest
     environment:
-      BACKEND_URL: ${BACKEND_URL}
-    ports:
-      - "80:80"
+      # Dashboard reaches the backend through the reverse proxy path.
+      BACKEND_URL: ${BACKEND_URL:-/api}
+    restart: always
+    networks:
+      - wh-proxy
+    # No host port: the Caddy reverse proxy owns :80 and routes to this
+    # container by name (dashboard:80) over the shared wh-proxy network.
+
+networks:
+  wh-proxy:
+    external: true

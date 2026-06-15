@@ -1,4 +1,4 @@
-.PHONY: help up-dev run up-prod down build clean type-check lint format format-fix pr-checks logs
+.PHONY: help up-dev run up-prod deploy down build clean type-check lint format format-fix pr-checks logs
 
 .DEFAULT_GOAL := help
 
@@ -22,6 +22,11 @@ run: up-dev ## Alias for up-dev
 up-prod: ## Start nginx self-hosted container (requires BACKEND_URL env var)
 	docker compose -f docker-compose.prod.yml up -d
 	@echo "Dashboard started on http://localhost:80"
+
+deploy: ## Pull the newest dashboard image and restart
+	docker compose -f docker-compose.prod.yml pull
+	docker compose -f docker-compose.prod.yml up -d
+	@echo "Dashboard redeployed"
 
 down: ## Stop and remove containers
 	docker compose down

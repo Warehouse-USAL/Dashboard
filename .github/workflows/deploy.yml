@@ -1,0 +1,23 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: deploy-dashboard
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy dashboard to server
+    if: github.event.release.prerelease == false
+    runs-on: [self-hosted, prod]
+    environment: production
+    steps:
+      - name: Deploy released tag
+        run: |
+          cd /opt/wh/Dashboard
+          git fetch --tags --force origin
+          git checkout "${GITHUB_REF_NAME}"
+          make deploy
