@@ -14,12 +14,13 @@ export default defineConfig({
   },
   vite: {
     server: {
+      port: 5173,
       proxy: {
         "/auth":     { target: "http://localhost:8080", changeOrigin: true },
         "/vehicles": { target: "http://localhost:8080", changeOrigin: true },
         "/orders":   { target: "http://localhost:8080", changeOrigin: true },
         "/products": { target: "http://localhost:8080", changeOrigin: true },
-        "/ws":       { target: "ws://localhost:8080",   ws: true, changeOrigin: true },
+        "/ws/v1":       { target: "ws://localhost:8080",   ws: true, changeOrigin: true },
       },
     },
   },
