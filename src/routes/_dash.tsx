@@ -5,25 +5,26 @@ import {
   CircuitBoard,
   LayoutDashboard,
   ListChecks,
-  Map as MapIcon,
   PackageSearch,
   Settings,
-  TrendingUp,
+  Truck,
 } from "lucide-react";
 import { alerts } from "@/lib/dashboard-data";
 import logoUrl from "@/assets/smartwarehouse-logo.png";
+import { useInventoryWebSocket } from "@/hooks/useInventoryWebSocket";
+import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
+import { useOrderWebSocket } from "@/hooks/useOrderWebSocket";
 
 export const Route = createFileRoute("/_dash")({
   component: DashLayout,
 });
 
 const nav = [
-  { to: "/", icon: LayoutDashboard, label: "Resumen" },
-  { to: "/mapa", icon: MapIcon, label: "Mapa en vivo" },
-  { to: "/ordenes", icon: ListChecks, label: "Órdenes" },
+  { to: "/home", icon: LayoutDashboard, label: "Home" },
+  { to: "/ordenes-v2", icon: ListChecks, label: "Órdenes" },
+  { to: "/vehiculos-v2", icon: Truck, label: "Vehículos" },
   { to: "/inventario", icon: PackageSearch, label: "Inventario" },
   { to: "/alertas", icon: Bell, label: "Alertas", badge: alerts.length },
-  { to: "/kpis", icon: TrendingUp, label: "KPIs" },
   { to: "/configuracion", icon: Settings, label: "Configuración" },
 ] as const;
 
@@ -31,6 +32,9 @@ function DashLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [now, setNow] = useState<string>("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useInventoryWebSocket();
+  useVehicleWebSocket();
+  useOrderWebSocket();
 
   useEffect(() => {
     const tick = () => setNow(new Date().toLocaleTimeString("es-AR"));
