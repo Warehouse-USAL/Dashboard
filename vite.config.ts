@@ -9,13 +9,23 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8090";
 const backendWsUrl = backendUrl.replace(/^http/, "ws");
 
-// Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-// @cloudflare/vite-plugin builds from this — wrangler.jsonc main alone is insufficient.
+// We deploy as a STATIC SPA behind nginx (served under the /dashboard/ path prefix
+// by the wh-autodeploys Caddy proxy), NOT as a Cloudflare Worker. So:
+//   - cloudflare: false      -> don't build the Workers SSR bundle (unused here)
+//   - tanstackStart.spa      -> prerender a real, mountable index.html shell. Without
+//                               this we hand-wrote an index.html that loaded the Start
+//                               client entry expecting SSR/hydration state that wasn't
+//                               there -> "Invariant failed" / blank page.
+//   - vite.base '/dashboard/'-> emitted asset URLs become /dashboard/assets/... so they
+//                               resolve through the Caddy /dashboard/* route.
 export default defineConfig({
+  cloudflare: false,
   tanstackStart: {
+    spa: { enabled: true },
     server: { entry: "server" },
   },
   vite: {
+    base: "/dashboard/",
     server: {
       proxy: {
         "/auth": { target: backendUrl, changeOrigin: true },
