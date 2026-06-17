@@ -12,31 +12,13 @@ FROM deps AS build
 COPY . .
 RUN bun run build
 
-# Generate index.html from the client assets produced by the build.
-# TanStack Start + @cloudflare/vite-plugin produces hashed JS/CSS in dist/client/assets/
-# but no index.html (SSR-first); we synthesise one for the nginx static fallback.
-RUN <<'EOF' sh
-set -e
-JS=$(ls /app/dist/client/assets/index-*.js 2>/dev/null | head -1 || ls /app/dist/client/assets/*.js | head -1)
-JS=$(echo "$JS" | sed 's|/app/dist/client/||')
-CSS=$(ls /app/dist/client/assets/styles-*.css 2>/dev/null | head -1 || ls /app/dist/client/assets/*.css 2>/dev/null | head -1 || true)
-CSS=$(echo "$CSS" | sed 's|/app/dist/client/||')
-cat > /app/dist/client/index.html <<HTML
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Dashboard</title>
-    $([ -n "$CSS" ] && echo "<link rel=\"stylesheet\" href=\"/${CSS}\" />" || true)
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/${JS}"></script>
-  </body>
-</html>
-HTML
-EOF
+# TanStack Start SPA mode (spa.enabled in vite.config) prerenders a real, mountable
+# shell at dist/client/_shell.html with correct /dashboard/ asset URLs and the router
+# bootstrap state. Use it as the nginx SPA-fallback index.html. (Previously we hand-
+# synthesised an index.html that loaded the Start client entry with no hydration state
+# -> "Invariant failed" / blank page.)
+RUN test -f /app/dist/client/_shell.html \
+    && cp /app/dist/client/_shell.html /app/dist/client/index.html
 
 # Stage 3: nginx runtime (static SPA, no SSR)
 FROM nginx:alpine AS runtime

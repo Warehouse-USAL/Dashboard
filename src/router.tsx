@@ -7,6 +7,8 @@ export const getRouter = () => {
 
   const router = createRouter({
     routeTree,
+    // Served under the /dashboard/ prefix by the Caddy proxy; must match vite base.
+    basepath: "/dashboard",
     context: { queryClient },
     scrollRestoration: true,
     defaultPreloadStaleTime: 0,
