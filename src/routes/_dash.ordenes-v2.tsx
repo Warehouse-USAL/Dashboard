@@ -257,17 +257,39 @@ function OrdenesPage() {
     return "90d";
   }, [period, customRange]);
 
-  const kpis = KPIS_BY_PERIOD[dataPeriod];
-  const distribucion = DISTRIBUCION_BY_PERIOD[dataPeriod];
+  const kpis = { ...KPIS_BY_PERIOD[dataPeriod], total: orders.length };
   const aging = AGING_BY_PERIOD[dataPeriod];
   const reintentos = REINTENTOS_BY_PERIOD[dataPeriod];
-  const cumplimiento = CUMPLIMIENTO_BY_PERIOD[dataPeriod];
   const horas = HORAS_BY_PERIOD[dataPeriod];
-  const prioridad = PRIORIDAD_BY_PERIOD[dataPeriod];
+
+  // Real distribution from API
+  const distribucion: Record<OrderState, number> = useMemo(() => ({
+    pending:     orders.filter((o) => o.state === "pending").length,
+    in_progress: orders.filter((o) => o.state === "in_progress").length,
+    completed:   orders.filter((o) => o.state === "completed").length,
+    cancelled:   orders.filter((o) => o.state === "cancelled").length,
+  }), [orders]);
 
   const distTotal = (Object.values(distribucion) as number[]).reduce((a, b) => a + b, 0);
   const distData = (Object.keys(distribucion) as OrderState[]).map((k) => ({ name: STATE_LABELS[k], key: k, value: distribucion[k] }));
   const agingMax = Math.max(...aging.map((a) => a.value));
+
+  // Real cumplimiento from API
+  const cumplimiento = useMemo(() => {
+    const comp = orders.filter((o) => o.state === "completed").length;
+    const canc = orders.filter((o) => o.state === "cancelled").length;
+    return {
+      pct:   comp + canc > 0 ? Math.round((comp / (comp + canc)) * 100) : 100,
+      delta: 0,
+    };
+  }, [orders]);
+
+  // Real priority distribution from API
+  const prioridad = useMemo(() => ({
+    alta:  orders.filter((o) => o.priority?.toLowerCase() === "alta").length,
+    media: orders.filter((o) => !["alta", "baja"].includes(o.priority?.toLowerCase() ?? "")).length,
+    baja:  orders.filter((o) => o.priority?.toLowerCase() === "baja").length,
+  }), [orders]);
 
   const prioTotal = prioridad.alta + prioridad.media + prioridad.baja;
   const prioData = [

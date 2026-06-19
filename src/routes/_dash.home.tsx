@@ -11,11 +11,12 @@ import {
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
 import { WarehouseMap } from "@/components/dashboard/WarehouseMap";
 import {
-  alertTone, alerts, batteryTone, stateStyles, stock, throughput,
+  alertTone, alerts, batteryTone, stateStyles, throughput,
 } from "@/lib/dashboard-data";
 import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
 import { useOrders } from "@/hooks/useOrders";
+import { useProducts } from "@/hooks/useProducts";
 
 export const Route = createFileRoute("/_dash/home")({
   component: HomePage,
@@ -43,35 +44,28 @@ const alertIconMap: Record<string, React.ComponentType<{ className?: string }>> 
 function HomePage() {
   const { data: rovers } = useVehicles();
   const { data: orders } = useOrders();
+  const { data: products } = useProducts();
   useVehicleWebSocket();
   const animatedRovers = useAnimatedRovers(rovers);
 
-
   const topSkus = useMemo(() => {
     const counts = new Map<string, number>();
-    orders.forEach((o) => {
-      const sku = o.product.split(" ")[0];
-      counts.set(sku, (counts.get(sku) ?? 0) + o.qty);
-    });
+    orders
+      .filter((o) => o.state === "completada")
+      .forEach((o) => {
+        const sku = o.product.split(" ")[0];
+        counts.set(sku, (counts.get(sku) ?? 0) + o.qty);
+      });
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
   }, [orders]);
 
-  const occupancy = Math.round(
-    (stock.reduce((a, s) => a + Math.min(s.available, 100), 0) /
-      (stock.length * 100)) * 100,
-  );
   const inProcess = orders.filter((o) => o.state === "en proceso").length;
   const totalOrders = orders.length;
-  const compliance = totalOrders ? Math.round(((totalOrders - 2) / totalOrders) * 100) : 91;
-  const stockValue = stock.reduce((a, s) => {
-    const unitPrice =
-      s.sku === "SKU-A102" ? 45000 :
-      s.sku === "SKU-B441" ? 120000 :
-      s.sku === "SKU-C019" ? 32000 :
-      s.sku === "SKU-D227" ? 78000 :
-      s.sku === "SKU-E308" ? 250000 : 56789;
-    return a + s.available * unitPrice;
-  }, 0);
+  const completadas = orders.filter((o) => o.state === "completada").length;
+  const canceladas  = orders.filter((o) => o.state === "cancelada").length;
+  const compliance  = completadas + canceladas > 0
+    ? Math.round((completadas / (completadas + canceladas)) * 100)
+    : 0;
 
   const picking = throughput.map((t) => ({ h: t.h, unidades: t.ordenes * 2 + 30 }));
   const ordersHour = throughput.map((t, i) => ({
@@ -79,10 +73,10 @@ function HomePage() {
     completadas: t.ordenes,
     canceladas: Math.max(0, Math.round(t.ordenes * 0.08) - (i % 3 === 0 ? 0 : 1)),
   }));
-  const stockDuration = stock.slice(0, 5).map((s) => ({
-    sku: s.sku,
-    dias: s.status === "agotado" ? 0 : s.status === "bajo" ? 4 : s.available > 100 ? 11 : 7,
-    status: s.status,
+  const stockDuration = products.slice(0, 5).map((p) => ({
+    sku: p.sku,
+    dias: p.status === "agotado" ? 0 : p.status === "bajo" ? 4 : p.available > 100 ? 11 : 7,
+    status: p.status,
   }));
   const stockColor = (st: string) =>
     st === "agotado" ? "oklch(0.65 0.24 27)" :
@@ -98,12 +92,12 @@ function HomePage() {
 
       {/* KPIs */}
       <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard label="Top SKUs" value={topSkus[0]?.[0] ?? "—"} icon={Package} trend={`${topSkus.length} más vendidos`} accent="primary" />
-        <KpiCard label="Ocupación almacén" value={`${occupancy}%`} icon={Warehouse} trend={`${stock.length} SKUs activos`} accent="primary" />
+        <KpiCard label="Top SKUs" value={topSkus[0]?.[0] ?? "—"} icon={Package} trend={`${topSkus.length} más solicitados`} accent="primary" />
+        <KpiCard label="Ocupación almacén" value="—" icon={Warehouse} trend={`${products.length} SKUs activos`} accent="primary" />
         <KpiCard label="Órdenes en proceso" value={String(inProcess)} icon={Activity} trend={`${totalOrders} totales`} accent="accent" />
-        <KpiCard label="Inventario valorizado" value={`$${(stockValue / 1_000_000).toFixed(1)}M`} icon={DollarSign} trend={`${stock.length} SKUs en depósito`} accent="primary" />
-        <KpiCard label="Cumplimiento" value={`${compliance}%`} icon={CheckCircle2} trend="tasa de éxito" accent="primary" />
-        <KpiCard label="Latido de flota" value="14.3 h" icon={HeartPulse} trend="MTBF · entre fallas" accent="destructive" />
+        <KpiCard label="Inventario valorizado" value="—" icon={DollarSign} trend="requiere precio en API" accent="primary" />
+        <KpiCard label="Cumplimiento" value={`${compliance}%`} icon={CheckCircle2} trend="completadas vs canceladas" accent="primary" />
+        <KpiCard label="Latido de flota" value="—" icon={HeartPulse} trend="MTBF · requiere Grafana" accent="destructive" />
       </section>
 
       {/* Mapa + Alertas */}
