@@ -1,18 +1,37 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, BatteryLow, Bell, CheckCircle2, ChevronRight,
-  Clock, DollarSign, HeartPulse, LayoutDashboard, Map as MapIcon, Package, Radio,
-  ShieldAlert, Target, Truck, Warehouse,
+  Activity,
+  AlertTriangle,
+  BatteryLow,
+  Bell,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  HeartPulse,
+  LayoutDashboard,
+  Map as MapIcon,
+  Package,
+  Radio,
+  ShieldAlert,
+  Target,
+  Truck,
+  Warehouse,
 } from "lucide-react";
 import {
-  Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
 import { WarehouseMap } from "@/components/dashboard/WarehouseMap";
-import {
-  alertTone, alerts, batteryTone, stateStyles, throughput,
-} from "@/lib/dashboard-data";
+import { alertTone, alerts, batteryTone, stateStyles, throughput } from "@/lib/dashboard-data";
 import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
 import { useOrders } from "@/hooks/useOrders";
@@ -62,10 +81,9 @@ function HomePage() {
   const inProcess = orders.filter((o) => o.state === "en proceso").length;
   const totalOrders = orders.length;
   const completadas = orders.filter((o) => o.state === "completada").length;
-  const canceladas  = orders.filter((o) => o.state === "cancelada").length;
-  const compliance  = completadas + canceladas > 0
-    ? Math.round((completadas / (completadas + canceladas)) * 100)
-    : 0;
+  const canceladas = orders.filter((o) => o.state === "cancelada").length;
+  const compliance =
+    completadas + canceladas > 0 ? Math.round((completadas / (completadas + canceladas)) * 100) : 0;
 
   const picking = throughput.map((t) => ({ h: t.h, unidades: t.ordenes * 2 + 30 }));
   const ordersHour = throughput.map((t, i) => ({
@@ -79,8 +97,11 @@ function HomePage() {
     status: p.status,
   }));
   const stockColor = (st: string) =>
-    st === "agotado" ? "oklch(0.65 0.24 27)" :
-    st === "bajo" ? "oklch(0.78 0.18 60)" : "oklch(0.78 0.18 180)";
+    st === "agotado"
+      ? "oklch(0.65 0.24 27)"
+      : st === "bajo"
+        ? "oklch(0.78 0.18 60)"
+        : "oklch(0.78 0.18 180)";
 
   return (
     <div className="space-y-6">
@@ -92,12 +113,48 @@ function HomePage() {
 
       {/* KPIs */}
       <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard label="Top SKUs" value={topSkus[0]?.[0] ?? "—"} icon={Package} trend={`${topSkus.length} más solicitados`} accent="primary" />
-        <KpiCard label="Ocupación almacén" value="—" icon={Warehouse} trend={`${products.length} SKUs activos`} accent="primary" />
-        <KpiCard label="Órdenes en proceso" value={String(inProcess)} icon={Activity} trend={`${totalOrders} totales`} accent="accent" />
-        <KpiCard label="Inventario valorizado" value="—" icon={DollarSign} trend="requiere precio en API" accent="primary" />
-        <KpiCard label="Cumplimiento" value={`${compliance}%`} icon={CheckCircle2} trend="completadas vs canceladas" accent="primary" />
-        <KpiCard label="Latido de flota" value="—" icon={HeartPulse} trend="MTBF · requiere Grafana" accent="destructive" />
+        <KpiCard
+          label="Top SKUs"
+          value={topSkus[0]?.[0] ?? "—"}
+          icon={Package}
+          trend={`${topSkus.length} más solicitados`}
+          accent="primary"
+        />
+        <KpiCard
+          label="Ocupación almacén"
+          value="—"
+          icon={Warehouse}
+          trend={`${products.length} SKUs activos`}
+          accent="primary"
+        />
+        <KpiCard
+          label="Órdenes en proceso"
+          value={String(inProcess)}
+          icon={Activity}
+          trend={`${totalOrders} totales`}
+          accent="accent"
+        />
+        <KpiCard
+          label="Inventario valorizado"
+          value="—"
+          icon={DollarSign}
+          trend="requiere precio en API"
+          accent="primary"
+        />
+        <KpiCard
+          label="Cumplimiento"
+          value={`${compliance}%`}
+          icon={CheckCircle2}
+          trend="completadas vs canceladas"
+          accent="primary"
+        />
+        <KpiCard
+          label="Latido de flota"
+          value="—"
+          icon={HeartPulse}
+          trend="MTBF · requiere Grafana"
+          accent="destructive"
+        />
       </section>
 
       {/* Mapa + Alertas */}
@@ -122,7 +179,10 @@ function HomePage() {
           subtitle={`${alerts.length} eventos sin reconocer`}
           icon={Bell}
           action={
-            <Link to="/alertas" className="text-xs text-primary hover:underline flex items-center gap-1">
+            <Link
+              to="/alertas"
+              className="text-xs text-primary hover:underline flex items-center gap-1"
+            >
               Todas <ChevronRight className="w-3 h-3" />
             </Link>
           }
@@ -131,11 +191,16 @@ function HomePage() {
             {alerts.slice(0, 5).map((a) => {
               const Icon = alertIconMap[a.icon] ?? AlertTriangle;
               return (
-                <div key={a.id} className={`rounded-lg border p-3 flex gap-3 items-start ${alertTone(a.level)}`}>
+                <div
+                  key={a.id}
+                  className={`rounded-lg border p-3 flex gap-3 items-start ${alertTone(a.level)}`}
+                >
                   <Icon className="w-4 h-4 mt-0.5 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold truncate">{a.type}</p>
-                    <p className="text-[11px] opacity-80 mt-0.5">{a.rover} · {a.time}</p>
+                    <p className="text-[11px] opacity-80 mt-0.5">
+                      {a.rover} · {a.time}
+                    </p>
                   </div>
                 </div>
               );
@@ -146,17 +211,27 @@ function HomePage() {
 
       {/* Rovers + Top SKUs */}
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Panel title="Estado de rovers" subtitle="Batería y operación" icon={Truck} className="xl:col-span-2">
+        <Panel
+          title="Estado de rovers"
+          subtitle="Batería y operación"
+          icon={Truck}
+          className="xl:col-span-2"
+        >
           <div className="space-y-2">
             {rovers.map((r) => {
               const bt = batteryTone(r.battery);
               return (
-                <div key={r.id} className="flex items-center gap-3 p-3 rounded-lg bg-secondary/30 border border-border">
+                <div
+                  key={r.id}
+                  className="flex items-center gap-3 p-3 rounded-lg bg-secondary/30 border border-border"
+                >
                   <Truck className="w-4 h-4 text-muted-foreground" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold">{r.id}</span>
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border ${stateStyles[r.state]}`}>
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border ${stateStyles[r.state]}`}
+                      >
                         <span className="w-1.5 h-1.5 rounded-full bg-current" /> {r.state}
                       </span>
                     </div>
@@ -220,12 +295,23 @@ function HomePage() {
               <YAxis stroke="oklch(0.7 0.02 240)" fontSize={11} />
               <Tooltip {...tooltip} />
               <Bar dataKey="completadas" stackId="a" fill="oklch(0.78 0.18 180)" />
-              <Bar dataKey="canceladas" stackId="a" fill="oklch(0.65 0.24 27)" radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey="canceladas"
+                stackId="a"
+                fill="oklch(0.65 0.24 27)"
+                radius={[4, 4, 0, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
           <div className="flex gap-4 text-[10px] mt-2 text-muted-foreground justify-center">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-primary" />Completadas</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-destructive" />Canceladas</span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-sm bg-primary" />
+              Completadas
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-sm bg-destructive" />
+              Canceladas
+            </span>
           </div>
         </Panel>
 
@@ -234,10 +320,18 @@ function HomePage() {
             <BarChart data={stockDuration} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
               <XAxis type="number" stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <YAxis type="category" dataKey="sku" stroke="oklch(0.7 0.02 240)" fontSize={10} width={60} />
+              <YAxis
+                type="category"
+                dataKey="sku"
+                stroke="oklch(0.7 0.02 240)"
+                fontSize={10}
+                width={60}
+              />
               <Tooltip {...tooltip} />
               <Bar dataKey="dias" radius={[0, 4, 4, 0]}>
-                {stockDuration.map((s) => <Cell key={s.sku} fill={stockColor(s.status)} />)}
+                {stockDuration.map((s) => (
+                  <Cell key={s.sku} fill={stockColor(s.status)} />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -248,11 +342,17 @@ function HomePage() {
 }
 
 function KpiCard({
-  label, value, icon: Icon, trend, accent,
+  label,
+  value,
+  icon: Icon,
+  trend,
+  accent,
 }: {
-  label: string; value: string;
+  label: string;
+  value: string;
   icon: React.ComponentType<{ className?: string }>;
-  trend: string; accent: "primary" | "accent" | "destructive";
+  trend: string;
+  accent: "primary" | "accent" | "destructive";
 }) {
   const accentMap = {
     primary: "text-primary bg-primary/10",
@@ -260,9 +360,14 @@ function KpiCard({
     destructive: "text-destructive bg-destructive/10",
   };
   return (
-    <div className="relative rounded-xl border border-border bg-card p-5 overflow-hidden hover:border-primary/30 transition" style={{ background: "var(--gradient-surface)" }}>
+    <div
+      className="relative rounded-xl border border-border bg-card p-5 overflow-hidden hover:border-primary/30 transition"
+      style={{ background: "var(--gradient-surface)" }}
+    >
       <div className="flex justify-between items-start mb-3">
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${accentMap[accent]}`}>
+        <div
+          className={`w-10 h-10 rounded-lg flex items-center justify-center ${accentMap[accent]}`}
+        >
           <Icon className="w-5 h-5" />
         </div>
       </div>
@@ -318,14 +423,21 @@ function useAnimatedRovers(rovers: import("@/lib/dashboard-data").Rover[]) {
         const s = m.get(r.id);
         if (!s) return;
         if (r.state !== "activo") {
-          s.vx = 0; s.vy = 0;
+          s.vx = 0;
+          s.vy = 0;
           return;
         }
         // Straight-line motion along the aisle (Y locked)
         s.x += s.vx * (dt / 32);
         // Bounce within almacén x: 22..96
-        if (s.x < 22) { s.x = 22; s.vx = Math.abs(s.vx); }
-        if (s.x > 96) { s.x = 96; s.vx = -Math.abs(s.vx); }
+        if (s.x < 22) {
+          s.x = 22;
+          s.vx = Math.abs(s.vx);
+        }
+        if (s.x > 96) {
+          s.x = 96;
+          s.vx = -Math.abs(s.vx);
+        }
       });
       setTick((n) => (n + 1) % 1_000_000);
       rafRef.current = requestAnimationFrame(step);
@@ -345,4 +457,3 @@ function useAnimatedRovers(rovers: import("@/lib/dashboard-data").Rover[]) {
     });
   }, [rovers, tick]);
 }
-

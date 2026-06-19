@@ -21,11 +21,17 @@ export function useOrderWebSocket() {
             if (msg.event?.startsWith("order.")) {
               queryClient.invalidateQueries({ queryKey: ["orders"] });
             }
-          } catch { /* ignore malformed */ }
+          } catch {
+            /* ignore malformed */
+          }
         };
-        ws.onclose = () => { if (!destroyed) timerRef.current = setTimeout(connect, 3_000); };
+        ws.onclose = () => {
+          if (!destroyed) timerRef.current = setTimeout(connect, 3_000);
+        };
         ws.onerror = () => ws.close();
-      } catch { if (!destroyed) timerRef.current = setTimeout(connect, 5_000); }
+      } catch {
+        if (!destroyed) timerRef.current = setTimeout(connect, 5_000);
+      }
     }
     connect();
     return () => {

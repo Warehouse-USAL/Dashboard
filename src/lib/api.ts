@@ -228,14 +228,19 @@ export async function getProducts(): Promise<FrontendProduct[]> {
     return list.map(mapProduct);
   } catch (err) {
     console.error("[api] getProducts → mock:", err);
-    return mockStock.map((s) => ({ ...s, reserved: 0, status: s.status as FrontendProduct["status"] }));
+    return mockStock.map((s) => ({
+      ...s,
+      reserved: 0,
+      status: s.status as FrontendProduct["status"],
+    }));
   }
 }
 
 export async function getWsUrl(path: string = "/ws/v1/vehicles"): Promise<string> {
   const token = await getToken();
   if (!BASE_URL) {
-    const proto = typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
+    const proto =
+      typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
     const host = typeof location !== "undefined" ? location.host : "localhost:8084";
     return `${proto}//${host}${path}?token=${token}`;
   }
