@@ -18,6 +18,7 @@ export type FrontendProduct = {
   zone: string;
   available: number;
   reserved: number;
+  minimum: number;
   status: "ok" | "bajo" | "agotado";
 };
 
@@ -105,8 +106,8 @@ interface BackendOrder {
   id: string;
   status?: string;
   items?: BackendOrderItem[];
+  assigned_vehicle_id?: string | null;
   assignedVehicleId?: string | null;
-  // fallbacks por si el back cambia de nuevo
   product?: string;
   product_sku?: string;
   quantity?: number;
@@ -127,7 +128,7 @@ function mapOrder(o: BackendOrder): FrontendOrder {
   const product = o.product ?? firstItem?.sku ?? o.product_sku ?? "—";
   const qty = firstItem?.quantity ?? o.quantity ?? 1;
   const rawState = o.status ?? "pending";
-  const rover = o.assignedVehicleId ?? o.vehicle_id ?? o.rover ?? "—";
+  const rover = o.assigned_vehicle_id ?? o.assignedVehicleId ?? o.vehicle_id ?? o.rover ?? "—";
   return {
     id: o.id,
     product,
@@ -174,7 +175,7 @@ function mapProduct(p: BackendProduct): FrontendProduct {
   const status: FrontendProduct["status"] =
     available === 0 ? "agotado" : available <= minimum ? "bajo" : "ok";
 
-  return { sku: p.sku, name: p.name, zone: zone || "—", available, reserved, status };
+  return { sku: p.sku, name: p.name, zone: zone || "—", available, reserved, minimum, status };
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -194,7 +195,7 @@ export async function getVehicles(): Promise<Rover[]> {
 
 export async function getOrders(status?: string): Promise<FrontendOrder[]> {
   try {
-    const path = status ? `/orders?status=${encodeURIComponent(status)}` : "/orders";
+    const path = status ? `/orders?size=100&status=${encodeURIComponent(status)}` : "/orders?size=100";
     const res = await apiFetch(path);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
@@ -208,14 +209,14 @@ export async function getOrders(status?: string): Promise<FrontendOrder[]> {
 
 export async function getProducts(): Promise<FrontendProduct[]> {
   try {
-    const res = await apiFetch("/products");
+    const res = await apiFetch("/products?size=100");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
     const list = (Array.isArray(raw) ? raw : raw.products ?? raw.content ?? []) as BackendProduct[];
     return list.map(mapProduct);
   } catch (err) {
     console.error("[api] getProducts → mock:", err);
-    return mockStock.map((s) => ({ ...s, reserved: 0, status: s.status as FrontendProduct["status"] }));
+    return mockStock.map((s) => ({ ...s, reserved: 0, minimum: 0, status: s.status as FrontendProduct["status"] }));
   }
 }
 

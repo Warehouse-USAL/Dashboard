@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Battery,
   CalendarClock,
-  DollarSign,
   Gauge,
   Package,
   PauseCircle,
@@ -14,14 +13,16 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
 import {
-  alerts, batteryTone, orders, stock, throughput, utilization,
+  alerts, batteryTone, throughput,
 } from "@/lib/dashboard-data";
 import { useVehicles } from "@/hooks/useVehicles";
+import { useOrders } from "@/hooks/useOrders";
+import { useProducts } from "@/hooks/useProducts";
 
 export const Route = createFileRoute("/_dash/kpis")({
   component: KpisPage,
@@ -86,10 +87,15 @@ function KpisPage() {
    ÓRDENES
 ============================================================ */
 function OrdersSection() {
-  const totalOrders = throughput.reduce((a, b) => a + b.ordenes, 0);
+  const { data: orders } = useOrders();
+  const completadas = orders.filter((o) => o.state === "completada").length;
+  const canceladas  = orders.filter((o) => o.state === "cancelada").length;
+  const totalOrders = orders.length;
+  const completion  = completadas + canceladas > 0
+    ? Math.round((completadas / (completadas + canceladas)) * 100)
+    : 0;
   const avgTime = (throughput.reduce((a, b) => a + b.tiempo, 0) / throughput.length).toFixed(1);
-  const completion = 91; // tasa cumplimiento
-  const pickingEff = (totalOrders / throughput.length / 10).toFixed(1); // u/h proxy
+  const pickingEff = (throughput.reduce((a, b) => a + b.ordenes, 0) / throughput.length / 10).toFixed(1);
 
   // mock picking efficiency per hour
   const pickingData = throughput.map((t) => ({ h: t.h, u: Math.round(40 + t.ordenes * 2 + Math.random() * 8) }));
@@ -194,19 +200,27 @@ function IncidentBar({ label, value, total, color, textClass }: { label: string;
 ============================================================ */
 function VehiclesSection() {
   const { data: rovers } = useVehicles();
-  const avgBattery = Math.round(rovers.reduce((a, b) => a + b.battery, 0) / rovers.length);
-  const activos = rovers.filter((r) => r.state === "activo").length;
-  const totalOrders = throughput.reduce((a, b) => a + b.ordenes, 0);
-  const ordersPerRover = activos ? Math.round(totalOrders / activos) : 0;
-  const inactivos = rovers.filter((r) => r.state !== "activo").length;
-  const inactividadPct = Math.round((inactivos / rovers.length) * 100);
+  const total = rovers.length || 1;
+  const avgBattery   = Math.round(rovers.reduce((a, b) => a + b.battery, 0) / total);
+  const activos      = rovers.filter((r) => r.state === "activo").length;
+  const detenidos    = rovers.filter((r) => r.state === "detenido").length;
+  const inactivos    = rovers.filter((r) => r.state === "inactivo").length;
+  const conOrden     = rovers.filter((r) => r.order !== null).length;
+  const inactividadPct = Math.round(((detenidos + inactivos) / total) * 100);
   const disponibilidad = 100 - inactividadPct;
+
+  const utilizationData = [
+    { name: "Con orden",  value: conOrden,                    color: "oklch(0.78 0.18 180)" },
+    { name: "Disponible", value: activos - conOrden,          color: "oklch(0.78 0.18 80)"  },
+    { name: "Detenido",   value: detenidos,                   color: "oklch(0.65 0.24 27)"  },
+    { name: "Inactivo",   value: inactivos,                   color: "oklch(0.6 0.01 250)"  },
+  ].filter((d) => d.value > 0);
 
   return (
     <SectionCard accent="warning" icon={Truck} title="KPIs de vehículos" subtitle="Estado, disponibilidad y productividad de la flota de rovers">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Stat icon={Battery} label="Batería prom." value={`${avgBattery}%`} accent="warning" />
-        <Stat icon={Truck} label="Órdenes / rover activo" value={String(ordersPerRover)} accent="warning" />
+        <Stat icon={Truck} label="Rovers con orden activa" value={String(conOrden)} accent="warning" />
         <Stat icon={PauseCircle} label="Inactividad" value={`${inactividadPct}%`} accent="warning" />
       </div>
 
@@ -214,14 +228,14 @@ function VehiclesSection() {
         <Panel title="Uso de Rovers" subtitle="Distribución actual" icon={Zap}>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={utilization} innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
-                {utilization.map((u) => <Cell key={u.name} fill={u.color} stroke="none" />)}
+              <Pie data={utilizationData} innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
+                {utilizationData.map((u) => <Cell key={u.name} fill={u.color} stroke="none" />)}
               </Pie>
               <Tooltip {...tooltip} />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-2 mt-2">
-            {utilization.map((u) => (
+            {utilizationData.map((u) => (
               <div key={u.name} className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ background: u.color }} />
@@ -254,7 +268,7 @@ function VehiclesSection() {
 
         <Panel title="Productividad y disponibilidad" subtitle="Rovers activos" icon={Truck}>
           <div className="space-y-4">
-            <MiniMetric icon={Truck} label="Órdenes / rover activo" value={String(ordersPerRover)} />
+            <MiniMetric icon={Truck} label="Rovers con orden activa" value={String(conOrden)} />
             <MiniMetric icon={PauseCircle} label="Inactividad" value={`${inactividadPct}%`} />
             <div>
               <div className="flex justify-between text-xs mb-1.5">
@@ -290,43 +304,32 @@ function MiniMetric({ icon: Icon, label, value }: { icon: React.ComponentType<{ 
    STOCK
 ============================================================ */
 function StockSection() {
-  const stockRisk = stock.filter((s) => s.status !== "ok");
-  const stockOk = stock.filter((s) => s.status === "ok");
-  const stockValueBySku = stock
-    .map((s) => ({ sku: s.sku, name: s.name, qty: s.available, value: s.available * (SKU_PRICES[s.sku] ?? 0), status: s.status }))
-    .sort((a, b) => b.value - a.value);
-  const stockValue = stockValueBySku.reduce((a, b) => a + b.value, 0);
-  const maxValue = Math.max(...stockValueBySku.map((s) => s.value), 1);
+  const { data: products } = useProducts();
+  const stockRisk = products.filter((s) => s.status !== "ok");
+  const stockOk   = products.filter((s) => s.status === "ok");
 
-  const durations = stock.map((s) => {
+  // Stock por SKU (unidades disponibles) — precio no disponible en API
+  const stockBySku = products
+    .map((s) => ({ sku: s.sku, name: s.name, qty: s.available, status: s.status }))
+    .sort((a, b) => b.qty - a.qty);
+  const maxQty = Math.max(...stockBySku.map((s) => s.qty), 1);
+  const totalUnidades = stockBySku.reduce((a, b) => a + b.qty, 0);
+
+  const durations = products.map((s) => {
     const dem = SKU_DEMAND[s.sku] ?? 5;
     const days = s.available === 0 ? 0 : s.available / dem;
     return { sku: s.sku, dias: Number(days.toFixed(1)) };
   });
-  const avgDuration = Math.round(durations.reduce((a, b) => a + b.dias, 0) / durations.length);
+  const avgDuration = durations.length
+    ? Math.round(durations.reduce((a, b) => a + b.dias, 0) / durations.length)
+    : 0;
 
-  // Ventas históricas (14 días) por SKU — picos sintéticos
-  const days = Array.from({ length: 14 }, (_, i) => (i === 13 ? "Hoy" : `L-${13 - i}`));
-  const salesData = days.map((d, i) => {
-    const base = Math.sin((i / 13) * Math.PI * 2) * 6 + Math.sin((i / 13) * Math.PI * 4) * 4;
-    return {
-      d,
-      "SKU-A102": Math.max(2, Math.round(18 + base * 1.6 + (i === 9 ? 8 : 0) + (i === 3 ? 10 : 0))),
-      "SKU-B441": Math.max(1, Math.round(5 + base * 0.6)),
-      "SKU-C019": Math.max(2, Math.round(11 + base * 1.1 + (i === 9 ? 6 : 0))),
-      "SKU-D227": Math.max(1, Math.round(6 + base * 0.9)),
-      "SKU-E308": Math.max(1, Math.round(3 + base * 0.5)),
-    };
-  });
-  const peakDay = "L-4";
-  const peakVal = 74;
-
-  // Replenishment recommendation
-  const replen = stock.map((s) => {
-    const dem = SKU_DEMAND[s.sku] ?? 5;
-    const min = SKU_MIN[s.sku] ?? 20;
+  // Replenishment recommendation — uses API minimum_stock + default demand estimate
+  const replen = products.map((s) => {
+    const dem  = SKU_DEMAND[s.sku] ?? 5;
+    const min  = s.minimum || SKU_MIN[s.sku] || 20;
     const lead = SKU_LEAD[s.sku] ?? 5;
-    const target = min + dem * 14;
+    const target  = min + dem * 14;
     const reorder = Math.max(0, target - s.available);
     const days = s.available === 0 ? 0 : Math.max(0, Math.floor((s.available - min) / dem));
     let urgency: "ya" | "ahora" | "ok";
@@ -343,9 +346,9 @@ function StockSection() {
     <SectionCard accent="success" icon={Package} title="KPIs de stock" subtitle="Inventario, riesgo de quiebre, demanda y reposición">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat icon={AlertTriangle} label="Stock en riesgo" value={`${stockRisk.length} SKUs`} accent="success" />
-        <Stat icon={DollarSign} label="Valor del stock" value={`$ ${formatNum(stockValue)}`} accent="success" />
+        <Stat icon={Package} label="SKUs sin quiebre" value={`${stockOk.length} SKUs`} accent="success" />
         <Stat icon={CalendarClock} label="Duración media stock" value={`${avgDuration} días`} accent="success" />
-        <Stat icon={TrendingUp} label="Pico de demanda" value={`${peakVal}u · ${peakDay}`} accent="success" />
+        <Stat icon={TrendingUp} label="Total en almacén" value={`${formatNum(totalUnidades)} u`} accent="success" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6">
@@ -382,25 +385,25 @@ function StockSection() {
           </div>
         </Panel>
 
-        <Panel title="Valor del stock por SKU" subtitle="Inventario valorizado" icon={DollarSign}>
+        <Panel title="Stock disponible por SKU" subtitle="Unidades disponibles · precio no disponible en API" icon={Package}>
           <div className="space-y-3">
-            {stockValueBySku.map((s) => (
+            {stockBySku.map((s) => (
               <div key={s.sku}>
                 <div className="flex justify-between text-xs mb-1.5">
                   <span className="font-medium">{s.sku}</span>
-                  <span className="font-mono font-semibold">$ {formatNum(s.value)}</span>
+                  <span className="font-mono font-semibold">{formatNum(s.qty)} u</span>
                 </div>
                 <div className="h-2 rounded-full bg-secondary overflow-hidden">
                   <div
                     className="h-full bg-primary transition-all"
-                    style={{ width: `${(s.value / maxValue) * 100}%` }}
+                    style={{ width: `${(s.qty / maxQty) * 100}%` }}
                   />
                 </div>
               </div>
             ))}
             <div className="flex justify-between pt-3 border-t border-border text-sm">
-              <span className="text-muted-foreground">Total valorizado</span>
-              <span className="font-bold">$ {formatNum(stockValue)}</span>
+              <span className="text-muted-foreground">Total en almacén</span>
+              <span className="font-bold">{formatNum(totalUnidades)} u</span>
             </div>
           </div>
         </Panel>
@@ -430,24 +433,27 @@ function StockSection() {
         </div>
       </Panel>
 
-      <Panel title="Ventas históricas por producto" subtitle="Últimos 14 días · estimación de picos de demanda" icon={TrendingUp} className="mt-6">
+      <Panel title="Stock actual por SKU" subtitle="Unidades disponibles en almacén · datos en vivo" icon={TrendingUp} className="mt-6">
         <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={salesData}>
+          <BarChart data={stockBySku} layout="vertical" margin={{ left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.9 0.01 250)" />
-            <XAxis dataKey="d" stroke="oklch(0.5 0.02 240)" fontSize={11} />
-            <YAxis stroke="oklch(0.5 0.02 240)" fontSize={11} />
-            <Tooltip {...tooltip} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey="SKU-A102" stroke="oklch(0.78 0.13 180)" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="SKU-B441" stroke="oklch(0.65 0.17 150)" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="SKU-C019" stroke="oklch(0.78 0.18 60)" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="SKU-D227" stroke="oklch(0.7 0.18 320)" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="SKU-E308" stroke="oklch(0.6 0.22 27)" strokeWidth={2} dot={false} />
-          </LineChart>
+            <XAxis type="number" stroke="oklch(0.5 0.02 240)" fontSize={11} />
+            <YAxis type="category" dataKey="sku" stroke="oklch(0.5 0.02 240)" fontSize={11} width={80} />
+            <Tooltip {...tooltip} formatter={(v: number) => [`${formatNum(v)} u`, "Disponible"]} />
+            <Bar dataKey="qty" radius={[0, 4, 4, 0]}>
+              {stockBySku.map((s) => (
+                <Cell
+                  key={s.sku}
+                  fill={s.status === "agotado" ? "oklch(0.6 0.22 27)" : s.status === "bajo" ? "oklch(0.78 0.18 60)" : "oklch(0.78 0.13 180)"}
+                />
+              ))}
+            </Bar>
+          </BarChart>
         </ResponsiveContainer>
-        <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-warning" />
-          Pico de demanda detectado: <strong>{peakVal} unidades</strong> el día <strong>{peakDay}</strong>
+        <div className="flex items-center gap-5 text-xs mt-3">
+          <LegendDot color="oklch(0.6 0.22 27)" label="Agotado" />
+          <LegendDot color="oklch(0.78 0.18 60)" label="Bajo" />
+          <LegendDot color="oklch(0.78 0.13 180)" label="Normal" />
         </div>
       </Panel>
 
@@ -577,5 +583,3 @@ function formatNum(n: number) {
   return n.toLocaleString("es-AR");
 }
 
-// keep imported but unused-friendly
-void orders;
