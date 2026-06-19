@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { alerts } from "@/lib/dashboard-data";
 import logoUrl from "@/assets/smartwarehouse-logo.png";
+import { useInventoryWebSocket } from "@/hooks/useInventoryWebSocket";
 
 export const Route = createFileRoute("/_dash")({
   component: DashLayout,
@@ -29,6 +30,7 @@ function DashLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [now, setNow] = useState<string>("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useInventoryWebSocket();
 
   useEffect(() => {
     const tick = () => setNow(new Date().toLocaleTimeString("es-AR"));
