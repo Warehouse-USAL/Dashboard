@@ -10,6 +10,10 @@ export type FrontendOrder = {
   priority: string;
   state: string;
   rover: string;
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  cancelReason?: string;
 };
 
 export type FrontendProduct = {
@@ -17,6 +21,7 @@ export type FrontendProduct = {
   name: string;
   zone: string;
   available: number;
+  reserved: number;
   status: "ok" | "bajo" | "agotado";
 };
 
@@ -29,7 +34,7 @@ async function login(): Promise<string> {
   const res = await fetch(`${BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "admin@sw.com", password: "admin123" }),
+    body: JSON.stringify({ email: "admin@smartwarehouse.local", password: "changeme" }),
   });
   if (!res.ok) throw new Error(`Login failed: ${res.status}`);
   const body = (await res.json()) as { token: string };
@@ -117,6 +122,8 @@ interface BackendOrder {
   priority?: string;
   vehicle_id?: string;
   rover?: string;
+  timestamps?: { created_at?: string; started_at?: string; completed_at?: string };
+  cancel_reason?: string | null;
 }
 
 const orderStatusMap: Record<string, string> = {
@@ -139,6 +146,10 @@ function mapOrder(o: BackendOrder): FrontendOrder {
     priority: o.priority ?? "media",
     state: orderStatusMap[rawState] ?? rawState,
     rover,
+    createdAt: o.timestamps?.created_at,
+    startedAt: o.timestamps?.started_at,
+    completedAt: o.timestamps?.completed_at,
+    cancelReason: o.cancel_reason ?? undefined,
   };
 }
 
@@ -163,6 +174,7 @@ function mapProduct(p: BackendProduct): FrontendProduct {
   const stockNum = typeof p.stock === "number" ? p.stock : null;
 
   const available = stockObj?.available ?? stockNum ?? p.available ?? 0;
+  const reserved = stockObj?.reserved ?? 0;
 
   const minimum = stockObj?.minimumStock ?? stockObj?.minimum_stock ?? 0;
 
@@ -171,7 +183,7 @@ function mapProduct(p: BackendProduct): FrontendProduct {
   const status: FrontendProduct["status"] =
     available === 0 ? "agotado" : available <= minimum ? "bajo" : "ok";
 
-  return { sku: p.sku, name: p.name, zone: zone || "—", available, status };
+  return { sku: p.sku, name: p.name, zone: zone || "—", available, reserved, status };
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -216,18 +228,17 @@ export async function getProducts(): Promise<FrontendProduct[]> {
     return list.map(mapProduct);
   } catch (err) {
     console.error("[api] getProducts → mock:", err);
-    return mockStock.map((s) => ({ ...s, status: s.status as FrontendProduct["status"] }));
+    return mockStock.map((s) => ({ ...s, reserved: 0, status: s.status as FrontendProduct["status"] }));
   }
 }
 
-export async function getWsUrl(): Promise<string> {
+export async function getWsUrl(path: string = "/ws/v1/vehicles"): Promise<string> {
   const token = await getToken();
   if (!BASE_URL) {
-    const proto =
-      typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
+    const proto = typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
     const host = typeof location !== "undefined" ? location.host : "localhost:8084";
-    return `${proto}//${host}/ws/v1/vehicles?token=${token}`;
+    return `${proto}//${host}${path}?token=${token}`;
   }
   const wsBase = BASE_URL.replace(/^https/, "wss").replace(/^http/, "ws");
-  return `${wsBase}/ws/v1/vehicles?token=${token}`;
+  return `${wsBase}${path}?token=${token}`;
 }
