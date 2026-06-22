@@ -200,7 +200,17 @@ function mapProduct(p: BackendProduct): FrontendProduct {
   const status: FrontendProduct["status"] =
     available === 0 ? "agotado" : available <= minimum ? "bajo" : "ok";
 
-  return { sku: p.sku, name: p.name, zone: zone || "—", available, reserved, minimum, priceCents, currency, status };
+  return {
+    sku: p.sku,
+    name: p.name,
+    zone: zone || "—",
+    available,
+    reserved,
+    minimum,
+    priceCents,
+    currency,
+    status,
+  };
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────

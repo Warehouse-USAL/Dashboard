@@ -4,15 +4,38 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
 import {
-  DollarSign, AlertTriangle, PackageX, Clock, TrendingDown,
-  Search, Filter, Download, ChevronDown, ChevronUp, ChevronsUpDown, Check,
-  RefreshCw, CalendarIcon,
+  DollarSign,
+  AlertTriangle,
+  PackageX,
+  Clock,
+  TrendingDown,
+  Search,
+  Filter,
+  Download,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Check,
+  RefreshCw,
+  CalendarIcon,
 } from "lucide-react";
 import {
-  ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
 } from "recharts";
-import { useInventoryMetrics, type InvStatus, type EnrichedProduct } from "@/hooks/useInventoryMetrics";
+import {
+  useInventoryMetrics,
+  type InvStatus,
+  type EnrichedProduct,
+} from "@/hooks/useInventoryMetrics";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -26,29 +49,37 @@ export const Route = createFileRoute("/_dash/inventario-v2")({
 
 const INV_STATUS_LABEL: Record<InvStatus, string> = {
   disponible: "Disponible",
-  riesgo:     "En riesgo",
-  quiebre:    "Quiebre",
-  dead:       "Dead stock",
+  riesgo: "En riesgo",
+  quiebre: "Quiebre",
+  dead: "Dead stock",
 };
 
 const INV_STATUS_CSS: Record<InvStatus, string> = {
   disponible: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
-  riesgo:     "border-amber-500/30 bg-amber-500/10 text-amber-500",
-  quiebre:    "border-destructive/30 bg-destructive/10 text-destructive",
-  dead:       "border-border bg-secondary/60 text-muted-foreground",
+  riesgo: "border-amber-500/30 bg-amber-500/10 text-amber-500",
+  quiebre: "border-destructive/30 bg-destructive/10 text-destructive",
+  dead: "border-border bg-secondary/60 text-muted-foreground",
 };
 
 const INV_STATUS_COLOR: Record<InvStatus, string> = {
   disponible: "oklch(0.78 0.18 160)",
-  riesgo:     "oklch(0.78 0.18 80)",
-  quiebre:    "oklch(0.65 0.24 27)",
-  dead:       "oklch(0.65 0.05 250)",
+  riesgo: "oklch(0.78 0.18 80)",
+  quiebre: "oklch(0.65 0.24 27)",
+  dead: "oklch(0.65 0.05 250)",
 };
 
 type SortKey =
-  | "sku" | "name" | "zone" | "reserved" | "available"
-  | "dailyDemand" | "coverageDays" | "reqNeto" | "stockValue"
-  | "lastOrderDaysAgo" | "invStatus";
+  | "sku"
+  | "name"
+  | "zone"
+  | "reserved"
+  | "available"
+  | "dailyDemand"
+  | "coverageDays"
+  | "reqNeto"
+  | "stockValue"
+  | "lastOrderDaysAgo"
+  | "invStatus";
 
 const ZONES = ["A", "B", "C", "D", "E"] as const;
 type Zone = (typeof ZONES)[number];
@@ -59,7 +90,7 @@ const ZONE_CAPACITY: Record<Zone, number> = { A: 200, B: 200, C: 150, D: 120, E:
 
 const PERIOD_OPTIONS = [
   { id: "24h", label: "Últimas 24 horas" },
-  { id: "7d",  label: "Últimos 7 días" },
+  { id: "7d", label: "Últimos 7 días" },
   { id: "30d", label: "Últimos 30 días" },
   { id: "90d", label: "Últimos 90 días" },
   { id: "custom", label: "Rango personalizado" },
@@ -67,28 +98,54 @@ const PERIOD_OPTIONS = [
 type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"];
 type DataPeriodId = Exclude<PeriodId, "custom">;
 
-const MOV_BY_PERIOD: Record<DataPeriodId, Array<{ h: string; entradas: number; salidas: number }>> = {
-  "24h": ["00","04","08","12","16","20"].map((h, i) => ({ h: `${h}:00`, entradas: [12,8,42,68,54,22][i], salidas: [18,14,56,82,72,38][i] })),
-  "7d":  ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map((d, i) => ({ h: d, entradas: [240,280,310,260,340,180,120][i], salidas: [320,360,380,340,420,210,140][i] })),
-  "30d": Array.from({ length: 6 }, (_, i) => ({ h: `Sem ${i+1}`, entradas: [1240,1380,1420,1310,1480,1360][i], salidas: [1480,1620,1680,1540,1740,1580][i] })),
-  "90d": ["Mar","Abr","May"].map((m, i) => ({ h: m, entradas: [5240,5680,5920][i], salidas: [6120,6380,6720][i] })),
+const MOV_BY_PERIOD: Record<
+  DataPeriodId,
+  Array<{ h: string; entradas: number; salidas: number }>
+> = {
+  "24h": ["00", "04", "08", "12", "16", "20"].map((h, i) => ({
+    h: `${h}:00`,
+    entradas: [12, 8, 42, 68, 54, 22][i],
+    salidas: [18, 14, 56, 82, 72, 38][i],
+  })),
+  "7d": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d, i) => ({
+    h: d,
+    entradas: [240, 280, 310, 260, 340, 180, 120][i],
+    salidas: [320, 360, 380, 340, 420, 210, 140][i],
+  })),
+  "30d": Array.from({ length: 6 }, (_, i) => ({
+    h: `Sem ${i + 1}`,
+    entradas: [1240, 1380, 1420, 1310, 1480, 1360][i],
+    salidas: [1480, 1620, 1680, 1540, 1740, 1580][i],
+  })),
+  "90d": ["Mar", "Abr", "May"].map((m, i) => ({
+    h: m,
+    entradas: [5240, 5680, 5920][i],
+    salidas: [6120, 6380, 6720][i],
+  })),
 };
 
 type MovKind = "entrada" | "salida" | "ajuste";
-type MovRow = { offsetH: number; sku: string; kind: MovKind; qty: number; rover: string; nota: string };
+type MovRow = {
+  offsetH: number;
+  sku: string;
+  kind: MovKind;
+  qty: number;
+  rover: string;
+  nota: string;
+};
 const MOVIMIENTOS: MovRow[] = [
-  { offsetH: 1,   sku: "SKU-A102", kind: "salida",  qty: 3,  rover: "R-01", nota: "OR-12511" },
-  { offsetH: 2,   sku: "SKU-C019", kind: "salida",  qty: 5,  rover: "R-03", nota: "OR-12510" },
-  { offsetH: 4,   sku: "SKU-B441", kind: "entrada", qty: 12, rover: "—",    nota: "Recepción prov." },
-  { offsetH: 6,   sku: "SKU-D227", kind: "salida",  qty: 2,  rover: "R-04", nota: "OR-12508" },
-  { offsetH: 9,   sku: "SKU-B502", kind: "ajuste",  qty: -2, rover: "—",    nota: "Inventario cíclico" },
-  { offsetH: 14,  sku: "SKU-A188", kind: "salida",  qty: 6,  rover: "R-02", nota: "OR-12507" },
-  { offsetH: 22,  sku: "SKU-E412", kind: "entrada", qty: 10, rover: "—",    nota: "Recepción prov." },
-  { offsetH: 30,  sku: "SKU-C077", kind: "salida",  qty: 4,  rover: "R-01", nota: "OR-12498" },
-  { offsetH: 48,  sku: "SKU-D310", kind: "salida",  qty: 8,  rover: "R-04", nota: "OR-12492" },
-  { offsetH: 120, sku: "SKU-A102", kind: "entrada", qty: 60, rover: "—",    nota: "Recepción prov." },
-  { offsetH: 480, sku: "SKU-C019", kind: "entrada", qty: 30, rover: "—",    nota: "Recepción prov." },
-  { offsetH: 720, sku: "SKU-D227", kind: "salida",  qty: 5,  rover: "R-02", nota: "OR-12300" },
+  { offsetH: 1, sku: "SKU-A102", kind: "salida", qty: 3, rover: "R-01", nota: "OR-12511" },
+  { offsetH: 2, sku: "SKU-C019", kind: "salida", qty: 5, rover: "R-03", nota: "OR-12510" },
+  { offsetH: 4, sku: "SKU-B441", kind: "entrada", qty: 12, rover: "—", nota: "Recepción prov." },
+  { offsetH: 6, sku: "SKU-D227", kind: "salida", qty: 2, rover: "R-04", nota: "OR-12508" },
+  { offsetH: 9, sku: "SKU-B502", kind: "ajuste", qty: -2, rover: "—", nota: "Inventario cíclico" },
+  { offsetH: 14, sku: "SKU-A188", kind: "salida", qty: 6, rover: "R-02", nota: "OR-12507" },
+  { offsetH: 22, sku: "SKU-E412", kind: "entrada", qty: 10, rover: "—", nota: "Recepción prov." },
+  { offsetH: 30, sku: "SKU-C077", kind: "salida", qty: 4, rover: "R-01", nota: "OR-12498" },
+  { offsetH: 48, sku: "SKU-D310", kind: "salida", qty: 8, rover: "R-04", nota: "OR-12492" },
+  { offsetH: 120, sku: "SKU-A102", kind: "entrada", qty: 60, rover: "—", nota: "Recepción prov." },
+  { offsetH: 480, sku: "SKU-C019", kind: "entrada", qty: 30, rover: "—", nota: "Recepción prov." },
+  { offsetH: 720, sku: "SKU-D227", kind: "salida", qty: 5, rover: "R-02", nota: "OR-12300" },
 ];
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -136,16 +193,16 @@ function periodLabel(value: PeriodId, range?: DateRange): string {
 function InventarioPage() {
   const { products, kpis } = useInventoryMetrics();
 
-  const [zoneFilter, setZoneFilter]     = useState<Set<Zone>>(new Set(ZONES));
+  const [zoneFilter, setZoneFilter] = useState<Set<Zone>>(new Set(ZONES));
   const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(
     new Set(["disponible", "riesgo", "quiebre", "dead"] as InvStatus[]),
   );
-  const [tableTab, setTableTab]         = useState<"todos" | InvStatus>("todos");
-  const [q, setQ]                       = useState("");
-  const [sortKey, setSortKey]           = useState<SortKey>("sku");
-  const [sortDir, setSortDir]           = useState<"asc" | "desc">("asc");
-  const [period, setPeriod]             = useState<PeriodId>("7d");
-  const [customRange, setCustomRange]   = useState<DateRange | undefined>();
+  const [tableTab, setTableTab] = useState<"todos" | InvStatus>("todos");
+  const [q, setQ] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("sku");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [period, setPeriod] = useState<PeriodId>("7d");
+  const [customRange, setCustomRange] = useState<DateRange | undefined>();
 
   const dataPeriod: DataPeriodId = useMemo(() => {
     if (period !== "custom") return period;
@@ -160,7 +217,9 @@ function InventarioPage() {
   // Distribution donut — 4-way status from real data
   const distByStatus = useMemo(() => {
     const acc: Record<InvStatus, number> = { disponible: 0, riesgo: 0, quiebre: 0, dead: 0 };
-    products.forEach((p) => { acc[p.invStatus] += 1; });
+    products.forEach((p) => {
+      acc[p.invStatus] += 1;
+    });
     return acc;
   }, [products]);
   const distTotal = Object.values(distByStatus).reduce((a, b) => a + b, 0);
@@ -180,8 +239,8 @@ function InventarioPage() {
     });
     return ZONES.filter((z) => zoneFilter.has(z)).map((z) => {
       const used = byZone.get(z) ?? 0;
-      const cap  = ZONE_CAPACITY[z];
-      const pct  = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+      const cap = ZONE_CAPACITY[z];
+      const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
       const tone = pct >= 85 ? "bg-rose-500" : pct >= 65 ? "bg-amber-500" : "bg-emerald-500";
       return { zone: z, used, cap, pct, tone };
     });
@@ -208,17 +267,39 @@ function InventarioPage() {
     list = [...list].sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
-        case "sku":             cmp = a.sku.localeCompare(b.sku); break;
-        case "name":            cmp = a.name.localeCompare(b.name); break;
-        case "zone":            cmp = a.zone.localeCompare(b.zone); break;
-        case "reserved":        cmp = a.reserved - b.reserved; break;
-        case "available":       cmp = a.available - b.available; break;
-        case "dailyDemand":     cmp = a.dailyDemand - b.dailyDemand; break;
-        case "coverageDays":    cmp = a.coverageDays - b.coverageDays; break;
-        case "reqNeto":         cmp = a.reqNeto - b.reqNeto; break;
-        case "stockValue":      cmp = a.stockValue - b.stockValue; break;
-        case "lastOrderDaysAgo":cmp = (a.lastOrderDaysAgo ?? 9999) - (b.lastOrderDaysAgo ?? 9999); break;
-        case "invStatus":       cmp = a.invStatus.localeCompare(b.invStatus); break;
+        case "sku":
+          cmp = a.sku.localeCompare(b.sku);
+          break;
+        case "name":
+          cmp = a.name.localeCompare(b.name);
+          break;
+        case "zone":
+          cmp = a.zone.localeCompare(b.zone);
+          break;
+        case "reserved":
+          cmp = a.reserved - b.reserved;
+          break;
+        case "available":
+          cmp = a.available - b.available;
+          break;
+        case "dailyDemand":
+          cmp = a.dailyDemand - b.dailyDemand;
+          break;
+        case "coverageDays":
+          cmp = a.coverageDays - b.coverageDays;
+          break;
+        case "reqNeto":
+          cmp = a.reqNeto - b.reqNeto;
+          break;
+        case "stockValue":
+          cmp = a.stockValue - b.stockValue;
+          break;
+        case "lastOrderDaysAgo":
+          cmp = (a.lastOrderDaysAgo ?? 9999) - (b.lastOrderDaysAgo ?? 9999);
+          break;
+        case "invStatus":
+          cmp = a.invStatus.localeCompare(b.invStatus);
+          break;
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -227,7 +308,10 @@ function InventarioPage() {
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortDir("asc"); }
+    else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
   };
 
   // Movimientos (mock)
@@ -237,17 +321,16 @@ function InventarioPage() {
     let to: number | undefined;
     if (period === "custom") {
       from = customRange?.from?.getTime();
-      to   = customRange?.to ? customRange.to.getTime() + 86_400_000 : undefined;
+      to = customRange?.to ? customRange.to.getTime() + 86_400_000 : undefined;
     } else {
       const days = period === "24h" ? 1 : period === "7d" ? 7 : period === "30d" ? 30 : 90;
       from = now - days * 86_400_000;
-      to   = now;
+      to = now;
     }
-    return MOVIMIENTOS
-      .map((m) => ({ ...m, t: now - m.offsetH * 3_600_000 }))
+    return MOVIMIENTOS.map((m) => ({ ...m, t: now - m.offsetH * 3_600_000 }))
       .filter((m) => {
         if (from !== undefined && m.t < from) return false;
-        if (to   !== undefined && m.t > to)   return false;
+        if (to !== undefined && m.t > to) return false;
         return true;
       })
       .map((m) => ({ ...m, fecha: format(new Date(m.t), "dd/MM/yyyy HH:mm") }));
@@ -259,7 +342,9 @@ function InventarioPage() {
       <div className="flex items-end justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-lg font-bold tracking-tight">Inventario</h1>
-          <p className="text-xs text-muted-foreground">Estado actual del stock · actualización cada 10s</p>
+          <p className="text-xs text-muted-foreground">
+            Estado actual del stock · actualización cada 10s
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-secondary/40">
@@ -327,8 +412,10 @@ function InventarioPage() {
               />
             </div>
             <FilterMenu
-              zone={zoneFilter} onZone={setZoneFilter}
-              status={statusFilter} onStatus={setStatusFilter}
+              zone={zoneFilter}
+              onZone={setZoneFilter}
+              status={statusFilter}
+              onStatus={setStatusFilter}
             />
           </div>
         }
@@ -337,17 +424,39 @@ function InventarioPage() {
           <table className="w-full text-sm min-w-[860px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
-                <SortTh k="sku"              active={sortKey} dir={sortDir} onSort={toggleSort}>SKU</SortTh>
-                <SortTh k="name"             active={sortKey} dir={sortDir} onSort={toggleSort}>Producto</SortTh>
-                <SortTh k="zone"             active={sortKey} dir={sortDir} onSort={toggleSort}>Posición</SortTh>
-                <SortTh k="reserved"         active={sortKey} dir={sortDir} onSort={toggleSort} right>Reservado</SortTh>
-                <SortTh k="available"        active={sortKey} dir={sortDir} onSort={toggleSort} right>Disponible</SortTh>
-                <SortTh k="dailyDemand"      active={sortKey} dir={sortDir} onSort={toggleSort} right>Dem. diaria</SortTh>
-                <SortTh k="coverageDays"     active={sortKey} dir={sortDir} onSort={toggleSort}>Cobertura</SortTh>
-                <SortTh k="reqNeto"          active={sortKey} dir={sortDir} onSort={toggleSort} right>Req. neto</SortTh>
-                <SortTh k="stockValue"       active={sortKey} dir={sortDir} onSort={toggleSort} right>Valor stock</SortTh>
-                <SortTh k="lastOrderDaysAgo" active={sortKey} dir={sortDir} onSort={toggleSort}>Última orden</SortTh>
-                <SortTh k="invStatus"        active={sortKey} dir={sortDir} onSort={toggleSort}>Estado</SortTh>
+                <SortTh k="sku" active={sortKey} dir={sortDir} onSort={toggleSort}>
+                  SKU
+                </SortTh>
+                <SortTh k="name" active={sortKey} dir={sortDir} onSort={toggleSort}>
+                  Producto
+                </SortTh>
+                <SortTh k="zone" active={sortKey} dir={sortDir} onSort={toggleSort}>
+                  Posición
+                </SortTh>
+                <SortTh k="reserved" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Reservado
+                </SortTh>
+                <SortTh k="available" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Disponible
+                </SortTh>
+                <SortTh k="dailyDemand" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Dem. diaria
+                </SortTh>
+                <SortTh k="coverageDays" active={sortKey} dir={sortDir} onSort={toggleSort}>
+                  Cobertura
+                </SortTh>
+                <SortTh k="reqNeto" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Req. neto
+                </SortTh>
+                <SortTh k="stockValue" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Valor stock
+                </SortTh>
+                <SortTh k="lastOrderDaysAgo" active={sortKey} dir={sortDir} onSort={toggleSort}>
+                  Última orden
+                </SortTh>
+                <SortTh k="invStatus" active={sortKey} dir={sortDir} onSort={toggleSort}>
+                  Estado
+                </SortTh>
               </tr>
             </thead>
             <tbody>
@@ -406,8 +515,7 @@ function InventarioPage() {
                       {d.name}
                     </span>
                     <span className="text-muted-foreground tabular-nums">
-                      {d.value}{" "}
-                      <span className="opacity-60">({pct}%)</span>
+                      {d.value} <span className="opacity-60">({pct}%)</span>
                     </span>
                   </div>
                 );
@@ -424,8 +532,7 @@ function InventarioPage() {
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="font-medium">Zona {o.zone}</span>
                   <span className="text-muted-foreground tabular-nums">
-                    {o.used}/{o.cap}{" "}
-                    <span className="opacity-60">({o.pct}%)</span>
+                    {o.used}/{o.cap} <span className="opacity-60">({o.pct}%)</span>
                   </span>
                 </div>
                 <div className="h-1.5 rounded-full bg-secondary/60 overflow-hidden">
@@ -475,7 +582,14 @@ function InventarioPage() {
       <Panel
         title="Movimientos de stock"
         subtitle="Entradas vs salidas · datos sintéticos"
-        action={<PeriodPicker value={period} onChange={setPeriod} range={customRange} onRangeChange={setCustomRange} />}
+        action={
+          <PeriodPicker
+            value={period}
+            onChange={setPeriod}
+            range={customRange}
+            onRangeChange={setCustomRange}
+          />
+        }
       >
         <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -487,8 +601,8 @@ function InventarioPage() {
               <XAxis dataKey="h" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
               <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
-              <Bar dataKey="entradas" fill="oklch(0.78 0.18 180)" radius={[4,4,0,0]} />
-              <Bar dataKey="salidas"  fill="oklch(0.72 0.18 50)"  radius={[4,4,0,0]} />
+              <Bar dataKey="entradas" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="salidas" fill="oklch(0.72 0.18 50)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -528,18 +642,27 @@ function InventarioPage() {
             </thead>
             <tbody>
               {movimientos.map((m, i) => (
-                <tr key={`${m.sku}-${i}`} className="border-b border-border/50 hover:bg-secondary/30">
-                  <td className="py-2.5 px-2 text-xs text-muted-foreground whitespace-nowrap">{m.fecha}</td>
+                <tr
+                  key={`${m.sku}-${i}`}
+                  className="border-b border-border/50 hover:bg-secondary/30"
+                >
+                  <td className="py-2.5 px-2 text-xs text-muted-foreground whitespace-nowrap">
+                    {m.fecha}
+                  </td>
                   <td className="py-2.5 px-2 text-xs font-mono font-bold">{m.sku}</td>
-                  <td className="py-2.5 px-2"><MovBadge k={m.kind} /></td>
-                  <td className={cn(
-                    "py-2.5 px-2 text-xs text-right tabular-nums font-semibold",
-                    m.qty < 0
-                      ? "text-destructive"
-                      : m.kind === "entrada"
-                      ? "text-emerald-500"
-                      : "text-foreground",
-                  )}>
+                  <td className="py-2.5 px-2">
+                    <MovBadge k={m.kind} />
+                  </td>
+                  <td
+                    className={cn(
+                      "py-2.5 px-2 text-xs text-right tabular-nums font-semibold",
+                      m.qty < 0
+                        ? "text-destructive"
+                        : m.kind === "entrada"
+                          ? "text-emerald-500"
+                          : "text-foreground",
+                    )}
+                  >
                     {m.qty > 0 ? `+${m.qty}` : m.qty}
                   </td>
                   <td className="py-2.5 px-2 text-xs">{m.rover}</td>
@@ -569,19 +692,25 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
     p.coverageDays >= 9999
       ? "bg-muted-foreground/40"
       : p.coverageDays < 5
-      ? "bg-destructive"
-      : p.coverageDays < 15
-      ? "bg-amber-500"
-      : "bg-emerald-500";
+        ? "bg-destructive"
+        : p.coverageDays < 15
+          ? "bg-amber-500"
+          : "bg-emerald-500";
 
   return (
     <tr className="border-b border-border/50 hover:bg-secondary/30">
       <td className="py-3 px-2 text-xs font-mono font-bold">{p.sku}</td>
-      <td className="py-3 px-2 text-xs max-w-[160px] truncate" title={p.name}>{p.name}</td>
+      <td className="py-3 px-2 text-xs max-w-[160px] truncate" title={p.name}>
+        {p.name}
+      </td>
       <td className="py-3 px-2 text-xs text-muted-foreground">{p.zone}</td>
-      <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">{p.reserved}</td>
+      <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
+        {p.reserved}
+      </td>
       <td className="py-3 px-2 text-xs text-right tabular-nums font-semibold">{p.available}</td>
-      <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">{fmtDemand(p.dailyDemand)}</td>
+      <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
+        {fmtDemand(p.dailyDemand)}
+      </td>
       <td className="py-3 px-2">
         <div className="flex items-center gap-2">
           <div className="w-16 h-1.5 rounded-full bg-secondary/60 overflow-hidden">
@@ -611,10 +740,17 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function Panel({
-  title, subtitle, action, className = "", children,
+  title,
+  subtitle,
+  action,
+  className = "",
+  children,
 }: {
-  title: string; subtitle?: string; action?: React.ReactNode;
-  className?: string; children: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  action?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
 }) {
   return (
     <div className={`rounded-xl border border-border bg-card p-5 ${className}`}>
@@ -635,10 +771,19 @@ function Th({ children, className = "" }: { children: React.ReactNode; className
 }
 
 function SortTh({
-  k, active, dir, onSort, right, children,
+  k,
+  active,
+  dir,
+  onSort,
+  right,
+  children,
 }: {
-  k: SortKey; active: SortKey; dir: "asc" | "desc";
-  onSort: (k: SortKey) => void; right?: boolean; children: React.ReactNode;
+  k: SortKey;
+  active: SortKey;
+  dir: "asc" | "desc";
+  onSort: (k: SortKey) => void;
+  right?: boolean;
+  children: React.ReactNode;
 }) {
   const isActive = active === k;
   const Icon = isActive ? (dir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
@@ -661,18 +806,24 @@ function SortTh({
 }
 
 function KpiCard({
-  icon: Icon, label, value, sub, tone,
+  icon: Icon,
+  label,
+  value,
+  sub,
+  tone,
 }: {
   icon: React.ComponentType<{ className?: string }>;
-  label: string; value: string; sub: string;
+  label: string;
+  value: string;
+  sub: string;
   tone: "primary" | "warning" | "danger" | "info" | "muted";
 }) {
   const toneCls: Record<string, string> = {
     primary: "text-primary bg-primary/10",
     warning: "text-amber-500 bg-amber-500/10",
-    danger:  "text-destructive bg-destructive/10",
-    info:    "text-sky-500 bg-sky-500/10",
-    muted:   "text-muted-foreground bg-secondary/60",
+    danger: "text-destructive bg-destructive/10",
+    info: "text-sky-500 bg-sky-500/10",
+    muted: "text-muted-foreground bg-secondary/60",
   };
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -680,7 +831,9 @@ function KpiCard({
         <div className={`w-7 h-7 rounded-md flex items-center justify-center ${toneCls[tone]}`}>
           <Icon className="w-3.5 h-3.5" />
         </div>
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground leading-tight">{label}</p>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground leading-tight">
+          {label}
+        </p>
       </div>
       <p className="text-2xl font-bold tabular-nums">{value}</p>
       <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>
@@ -690,7 +843,9 @@ function KpiCard({
 
 function InvStatusBadge({ s }: { s: InvStatus }) {
   return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${INV_STATUS_CSS[s]}`}>
+    <span
+      className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${INV_STATUS_CSS[s]}`}
+    >
       {INV_STATUS_LABEL[s]}
     </span>
   );
@@ -699,8 +854,8 @@ function InvStatusBadge({ s }: { s: InvStatus }) {
 function MovBadge({ k }: { k: MovKind }) {
   const map: Record<MovKind, string> = {
     entrada: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
-    salida:  "border-primary/30 bg-primary/10 text-primary",
-    ajuste:  "border-amber-500/30 bg-amber-500/10 text-amber-500",
+    salida: "border-primary/30 bg-primary/10 text-primary",
+    ajuste: "border-amber-500/30 bg-amber-500/10 text-amber-500",
   };
   const label: Record<MovKind, string> = { entrada: "Entrada", salida: "Salida", ajuste: "Ajuste" };
   return (
@@ -711,17 +866,18 @@ function MovBadge({ k }: { k: MovKind }) {
 }
 
 function TableTabs({
-  value, onChange,
+  value,
+  onChange,
 }: {
   value: "todos" | InvStatus;
   onChange: (v: "todos" | InvStatus) => void;
 }) {
   const tabs: Array<{ id: "todos" | InvStatus; label: string }> = [
-    { id: "todos",      label: "Todos" },
+    { id: "todos", label: "Todos" },
     { id: "disponible", label: "Disponible" },
-    { id: "riesgo",     label: "En riesgo" },
-    { id: "quiebre",    label: "Quiebre" },
-    { id: "dead",       label: "Dead stock" },
+    { id: "riesgo", label: "En riesgo" },
+    { id: "quiebre", label: "Quiebre" },
+    { id: "dead", label: "Dead stock" },
   ];
   return (
     <div className="flex items-center gap-0.5 p-0.5 rounded-md border border-border bg-secondary/30">
@@ -744,20 +900,27 @@ function TableTabs({
 }
 
 function FilterMenu({
-  zone, onZone, status, onStatus,
+  zone,
+  onZone,
+  status,
+  onStatus,
 }: {
-  zone: Set<Zone>; onZone: (s: Set<Zone>) => void;
-  status: Set<InvStatus>; onStatus: (s: Set<InvStatus>) => void;
+  zone: Set<Zone>;
+  onZone: (s: Set<Zone>) => void;
+  status: Set<InvStatus>;
+  onStatus: (s: Set<InvStatus>) => void;
 }) {
   const INV_STATUS_LIST: InvStatus[] = ["disponible", "riesgo", "quiebre", "dead"];
   const toggleZone = (z: Zone) => {
     const next = new Set(zone);
-    if (next.has(z)) next.delete(z); else next.add(z);
+    if (next.has(z)) next.delete(z);
+    else next.add(z);
     onZone(next);
   };
   const toggleStatus = (s: InvStatus) => {
     const next = new Set(status);
-    if (next.has(s)) next.delete(s); else next.add(s);
+    if (next.has(s)) next.delete(s);
+    else next.add(s);
     onStatus(next);
   };
   const active =
@@ -776,17 +939,29 @@ function FilterMenu({
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-60 p-2">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">Estado</p>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">
+          Estado
+        </p>
         {INV_STATUS_LIST.map((s) => (
-          <CheckRow key={s} on={status.has(s)} label={INV_STATUS_LABEL[s]} onClick={() => toggleStatus(s)} />
+          <CheckRow
+            key={s}
+            on={status.has(s)}
+            label={INV_STATUS_LABEL[s]}
+            onClick={() => toggleStatus(s)}
+          />
         ))}
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mt-3 mb-1">Zona</p>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mt-3 mb-1">
+          Zona
+        </p>
         {ZONES.map((z) => (
           <CheckRow key={z} on={zone.has(z)} label={`Zona ${z}`} onClick={() => toggleZone(z)} />
         ))}
         <div className="flex justify-between mt-2 pt-2 border-t border-border">
           <button
-            onClick={() => { onStatus(new Set()); onZone(new Set()); }}
+            onClick={() => {
+              onStatus(new Set());
+              onZone(new Set());
+            }}
             className="text-[11px] text-muted-foreground hover:text-foreground px-1"
           >
             Limpiar
@@ -826,10 +1001,15 @@ function CheckRow({ on, label, onClick }: { on: boolean; label: string; onClick:
 }
 
 function PeriodPicker({
-  value, onChange, range, onRangeChange,
+  value,
+  onChange,
+  range,
+  onRangeChange,
 }: {
-  value: PeriodId; onChange: (v: PeriodId) => void;
-  range?: DateRange; onRangeChange?: (r: DateRange | undefined) => void;
+  value: PeriodId;
+  onChange: (v: PeriodId) => void;
+  range?: DateRange;
+  onRangeChange?: (r: DateRange | undefined) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -847,7 +1027,10 @@ function PeriodPicker({
             {PERIOD_OPTIONS.map((p) => (
               <button
                 key={p.id}
-                onClick={() => { onChange(p.id); if (p.id !== "custom") setOpen(false); }}
+                onClick={() => {
+                  onChange(p.id);
+                  if (p.id !== "custom") setOpen(false);
+                }}
                 className={cn(
                   "w-full flex items-center justify-between px-2 py-1.5 text-xs rounded hover:bg-secondary/60",
                   p.id === value && "bg-secondary/60",
