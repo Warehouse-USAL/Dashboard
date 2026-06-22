@@ -22,6 +22,9 @@ export type FrontendProduct = {
   zone: string;
   available: number;
   reserved: number;
+  minimum: number;
+  priceCents: number;
+  currency: string;
   status: "ok" | "bajo" | "agotado";
 };
 
@@ -34,7 +37,7 @@ async function login(): Promise<string> {
   const res = await fetch(`${BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "admin@smartwarehouse.local", password: "changeme" }),
+    body: JSON.stringify({ email: "admin@test.com", password: "admin123" }),
   });
   if (!res.ok) throw new Error(`Login failed: ${res.status}`);
   const body = (await res.json()) as { token: string };
@@ -156,17 +159,27 @@ function mapOrder(o: BackendOrder): FrontendOrder {
 interface BackendProduct {
   sku: string;
   name: string;
+  price?: { amount_cents?: number; currency?: string };
   stock?:
     | {
         available?: number;
         reserved?: number;
-        minimumStock?: number; // camelCase en el nuevo backend
-        minimum_stock?: number; // fallback snake_case
+        minimumStock?: number;
+        minimum_stock?: number;
+        min?: number; // RFC field name
       }
     | number;
   available?: number;
-  location?: { zone?: string; line?: string; position?: string };
+  location?: {
+    zone?: string;
+    line?: string;
+    position?: string;
+    zone_code?: string;
+    number_line?: number;
+    position_name?: string;
+  };
   active?: boolean;
+  created_at?: string;
 }
 
 function mapProduct(p: BackendProduct): FrontendProduct {
@@ -175,15 +188,19 @@ function mapProduct(p: BackendProduct): FrontendProduct {
 
   const available = stockObj?.available ?? stockNum ?? p.available ?? 0;
   const reserved = stockObj?.reserved ?? 0;
+  const minimum = stockObj?.minimumStock ?? stockObj?.minimum_stock ?? stockObj?.min ?? 0;
 
-  const minimum = stockObj?.minimumStock ?? stockObj?.minimum_stock ?? 0;
+  const priceCents = p.price?.amount_cents ?? 0;
+  const currency = p.price?.currency ?? "ARS";
 
-  const zone = [p.location?.zone, p.location?.line].filter(Boolean).join("-");
+  const zone = p.location?.zone_code
+    ? `${p.location.zone_code}-${p.location.number_line ?? "?"}`
+    : [p.location?.zone, p.location?.line].filter(Boolean).join("-");
 
   const status: FrontendProduct["status"] =
     available === 0 ? "agotado" : available <= minimum ? "bajo" : "ok";
 
-  return { sku: p.sku, name: p.name, zone: zone || "—", available, reserved, status };
+  return { sku: p.sku, name: p.name, zone: zone || "—", available, reserved, minimum, priceCents, currency, status };
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -203,9 +220,13 @@ export async function getVehicles(): Promise<Rover[]> {
   }
 }
 
-export async function getOrders(status?: string): Promise<FrontendOrder[]> {
+export async function getOrders(status?: string, fromISO?: string): Promise<FrontendOrder[]> {
   try {
-    const path = status ? `/orders?status=${encodeURIComponent(status)}` : "/orders";
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (fromISO) params.set("from", fromISO);
+    const qs = params.toString();
+    const path = qs ? `/orders?${qs}` : "/orders";
     const res = await apiFetch(path);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
@@ -231,6 +252,9 @@ export async function getProducts(): Promise<FrontendProduct[]> {
     return mockStock.map((s) => ({
       ...s,
       reserved: 0,
+      minimum: 0,
+      priceCents: 0,
+      currency: "ARS",
       status: s.status as FrontendProduct["status"],
     }));
   }

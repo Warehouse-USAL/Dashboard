@@ -22,11 +22,9 @@ export const Route = createFileRoute("/_dash")({
 
 const nav = [
   { to: "/home", icon: LayoutDashboard, label: "Home" },
-  { to: "/mapa", icon: MapIcon, label: "Mapa en vivo" },
   { to: "/ordenes-v2", icon: ListChecks, label: "Órdenes" },
   { to: "/vehiculos-v2", icon: Truck, label: "Vehículos" },
-  { to: "/inventario", icon: PackageSearch, label: "Inventario" },
-  { to: "/kpis", icon: TrendingUp, label: "KPIs" },
+  { to: "/inventario-v2", icon: PackageSearch, label: "Inventario" },
   { to: "/alertas", icon: Bell, label: "Alertas", badge: alerts.length },
   { to: "/configuracion", icon: Settings, label: "Configuración" },
 ] as const;
