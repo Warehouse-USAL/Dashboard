@@ -37,7 +37,10 @@ async function login(): Promise<string> {
   const res = await fetch(`${BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "admin@test.com", password: "admin123" }),
+    body: JSON.stringify({
+    email: import.meta.env.VITE_ADMIN_EMAIL,
+    password: import.meta.env.VITE_ADMIN_PASSWORD,
+}),
   });
   if (!res.ok) throw new Error(`Login failed: ${res.status}`);
   const body = (await res.json()) as { token: string };
