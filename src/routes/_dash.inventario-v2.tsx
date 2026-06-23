@@ -259,7 +259,7 @@ function InventarioPage() {
       if (!statusFilter.has(p.invStatus)) return false;
       const z = p.zone.split("-")[0] as Zone;
       if ((ZONES as readonly string[]).includes(z) && !zoneFilter.has(z)) return false;
-      if (q && !`${p.sku} ${p.name} ${p.zone}`.toLowerCase().includes(q.toLowerCase()))
+      if (q && !`${p.sku} ${p.name} ${p.positionDisplay}`.toLowerCase().includes(q.toLowerCase()))
         return false;
       return true;
     });
@@ -703,7 +703,7 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
       <td className="py-3 px-2 text-xs max-w-[160px] truncate" title={p.name}>
         {p.name}
       </td>
-      <td className="py-3 px-2 text-xs text-muted-foreground">{p.zone}</td>
+      <td className="py-3 px-2 text-xs font-mono text-muted-foreground">{p.positionDisplay}</td>
       <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
         {p.reserved}
       </td>

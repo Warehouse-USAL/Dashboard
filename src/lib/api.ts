@@ -17,6 +17,7 @@ export type FrontendOrder = {
 };
 
 export type FrontendProduct = {
+  id: string;
   sku: string;
   name: string;
   zone: string;
@@ -177,6 +178,7 @@ function mapOrder(o: BackendOrder): FrontendOrder {
 }
 
 interface BackendProduct {
+  id?: string;
   sku: string;
   name: string;
   price?: { amount_cents?: number; currency?: string };
@@ -221,6 +223,7 @@ function mapProduct(p: BackendProduct): FrontendProduct {
     available === 0 ? "agotado" : available <= minimum ? "bajo" : "ok";
 
   return {
+    id: p.id ?? p.sku,
     sku: p.sku,
     name: p.name,
     zone: zone || "—",
@@ -280,6 +283,7 @@ export async function getProducts(): Promise<FrontendProduct[]> {
   } catch (err) {
     console.error("[api] getProducts → mock:", err);
     return mockStock.map((s) => ({
+      id: s.sku,
       ...s,
       reserved: 0,
       minimum: 0,
@@ -287,6 +291,66 @@ export async function getProducts(): Promise<FrontendProduct[]> {
       currency: "ARS",
       status: s.status as FrontendProduct["status"],
     }));
+  }
+}
+
+// ─── Warehouse positions ───────────────────────────────────────────────────────
+
+export interface WarehousePosition {
+  id_position: string;
+  id_line: string;
+  id_zone: string;
+  position_name: string;
+  product_id: string | null;
+  current_stock: number;
+  maximum_capacity?: number;
+  is_active?: boolean;
+  // injected after fetch
+  zone_code?: string;
+  number_line?: number;
+}
+
+/**
+ * Fetches all zones → lines → positions in parallel and returns a flat list.
+ * Falls back to [] on any error so callers degrade gracefully.
+ */
+export async function getAllPositions(): Promise<WarehousePosition[]> {
+  try {
+    const zonesRes = await apiFetch("/warehouse/zones");
+    if (!zonesRes.ok) throw new Error(`zones: ${zonesRes.status}`);
+    const zonesData = (await zonesRes.json()) as {
+      zones?: Array<{ id_zone: string; zone_code: string }>;
+    };
+    const zones = zonesData.zones ?? [];
+
+    const linesPerZone = await Promise.all(
+      zones.map(async (z) => {
+        const r = await apiFetch(`/warehouse/zones/${z.id_zone}/lines`);
+        if (!r.ok) return [];
+        const d = (await r.json()) as {
+          lines?: Array<{ id_line: string; number_line: number }>;
+        };
+        return (d.lines ?? []).map((l) => ({ ...l, zone_code: z.zone_code }));
+      }),
+    );
+    const lines = linesPerZone.flat();
+
+    const posPerLine = await Promise.all(
+      lines.map(async (l) => {
+        const r = await apiFetch(`/warehouse/lines/${l.id_line}/positions`);
+        if (!r.ok) return [];
+        const d = (await r.json()) as { positions?: WarehousePosition[] };
+        return (d.positions ?? []).map((p) => ({
+          ...p,
+          zone_code: l.zone_code,
+          number_line: l.number_line,
+        }));
+      }),
+    );
+    return posPerLine.flat();
+  } catch (err) {
+    console.error("[api] getAllPositions → []:", err);
+    return [];
   }
 }
 

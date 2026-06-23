@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getOrders, getProducts } from "@/lib/api";
+import { getAllPositions, getOrders, getProducts } from "@/lib/api";
 import { stock as mockStock } from "@/lib/dashboard-data";
 import type { FrontendProduct } from "@/lib/api";
 
@@ -10,6 +10,7 @@ export type EnrichedProduct = {
   sku: string;
   name: string;
   zone: string;
+  positionDisplay: string;
   available: number;
   reserved: number;
   minimum: number;
@@ -33,6 +34,7 @@ export type InventoryKPIs = {
 };
 
 const MOCK_PRODUCTS_INIT: FrontendProduct[] = mockStock.map((s) => ({
+  id: s.sku,
   sku: s.sku,
   name: s.name,
   zone: s.zone,
@@ -64,6 +66,13 @@ export function useInventoryMetrics() {
     refetchInterval: 60_000,
   });
 
+  const { data: positions = [] } = useQuery({
+    queryKey: ["warehouse-positions"],
+    queryFn: getAllPositions,
+    refetchInterval: 5 * 60_000,
+    staleTime: 5 * 60_000,
+  });
+
   return useMemo(() => {
     const now = Date.now();
     const sevenDaysMs = 7 * 86_400_000;
@@ -83,6 +92,22 @@ export function useInventoryMetrics() {
       skuMap.set(sku, entry);
     });
 
+    // First position with current_stock > 0 per product_id
+    const positionByProductId = new Map<
+      string,
+      { position_name: string; zone_code?: string; number_line?: number }
+    >();
+    positions.forEach((pos) => {
+      if (!pos.product_id || pos.current_stock <= 0) return;
+      if (!positionByProductId.has(pos.product_id)) {
+        positionByProductId.set(pos.product_id, {
+          position_name: pos.position_name,
+          zone_code: pos.zone_code,
+          number_line: pos.number_line,
+        });
+      }
+    });
+
     const enriched: EnrichedProduct[] = products.map((p) => {
       const info = skuMap.get(p.sku);
       const dailyDemand = info ? info.totalQty / 30 : 0;
@@ -92,6 +117,15 @@ export function useInventoryMetrics() {
       const lastOrderDate = info?.lastDate ?? null;
       const lastOrderTs = lastOrderDate ? new Date(lastOrderDate).getTime() : 0;
       const lastOrderDaysAgo = lastOrderDate ? (now - lastOrderTs) / 86_400_000 : null;
+
+      const pos = positionByProductId.get(p.id);
+      const positionDisplay = pos
+        ? pos.zone_code
+          ? `${pos.zone_code}-L${pos.number_line ?? "?"}-${pos.position_name}`
+          : pos.position_name
+        : p.zone || "—";
+      // zone letter used for occupancy grouping
+      const zone = pos?.zone_code ?? p.zone.split("-")[0] ?? "—";
 
       let invStatus: InvStatus;
       if (p.available === 0) {
@@ -107,7 +141,8 @@ export function useInventoryMetrics() {
       return {
         sku: p.sku,
         name: p.name,
-        zone: p.zone,
+        zone,
+        positionDisplay,
         available: p.available,
         reserved: p.reserved,
         minimum: p.minimum,
@@ -143,5 +178,5 @@ export function useInventoryMetrics() {
     };
 
     return { products: enriched, kpis };
-  }, [products, completedOrders]);
+  }, [products, completedOrders, positions]);
 }
