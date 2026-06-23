@@ -10,6 +10,10 @@ export type FrontendOrder = {
   priority: string;
   state: string;
   rover: string;
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  cancelReason?: string;
 };
 
 export type FrontendProduct = {
@@ -17,48 +21,72 @@ export type FrontendProduct = {
   name: string;
   zone: string;
   available: number;
+  reserved: number;
+  minimum: number;
+  priceCents: number;
+  currency: string;
   status: "ok" | "bajo" | "agotado";
 };
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
+// Each USER authenticates themselves — there is NO service credential baked into the
+// build. The login screen calls login(email, password); we keep the returned JWT in
+// sessionStorage (per-tab, gone when the tab closes). Nothing secret ships in the JS.
 
+const TOKEN_KEY = "wh_token";
 let cachedToken: string | null = null;
-let loginInFlight: Promise<string> | null = null;
 
-async function login(): Promise<string> {
+export function getStoredToken(): string | null {
+  if (cachedToken) return cachedToken;
+  if (typeof window !== "undefined") cachedToken = window.sessionStorage.getItem(TOKEN_KEY);
+  return cachedToken;
+}
+
+export function setStoredToken(token: string): void {
+  cachedToken = token;
+  if (typeof window !== "undefined") window.sessionStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearStoredToken(): void {
+  cachedToken = null;
+  if (typeof window !== "undefined") window.sessionStorage.removeItem(TOKEN_KEY);
+}
+
+/** Called by the login screen with the user's own credentials. */
+export async function login(email: string, password: string): Promise<void> {
   const res = await fetch(`${BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "admin@sw.com", password: "admin123" }),
+    body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(`Login failed: ${res.status}`);
   const body = (await res.json()) as { token: string };
-  return body.token;
+  setStoredToken(body.token);
+}
+
+function redirectToLogin(): void {
+  if (typeof window !== "undefined" && !window.location.pathname.endsWith("/login")) {
+    window.location.href = "/dashboard/login";
+  }
 }
 
 async function getToken(): Promise<string> {
-  if (cachedToken) return cachedToken;
-  if (!loginInFlight) {
-    loginInFlight = login()
-      .then((token) => {
-        cachedToken = token;
-        return token;
-      })
-      .finally(() => {
-        loginInFlight = null;
-      });
+  const token = getStoredToken();
+  if (!token) {
+    redirectToLogin();
+    throw new Error("Not authenticated");
   }
-  return loginInFlight;
+  return token;
 }
 
-async function apiFetch(path: string, retried = false): Promise<Response> {
+async function apiFetch(path: string): Promise<Response> {
   const token = await getToken();
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (res.status === 401 && !retried) {
-    cachedToken = null;
-    return apiFetch(path, true);
+  if (res.status === 401) {
+    clearStoredToken();
+    redirectToLogin();
   }
   return res;
 }
@@ -117,6 +145,8 @@ interface BackendOrder {
   priority?: string;
   vehicle_id?: string;
   rover?: string;
+  timestamps?: { created_at?: string; started_at?: string; completed_at?: string };
+  cancel_reason?: string | null;
 }
 
 const orderStatusMap: Record<string, string> = {
@@ -139,23 +169,37 @@ function mapOrder(o: BackendOrder): FrontendOrder {
     priority: o.priority ?? "media",
     state: orderStatusMap[rawState] ?? rawState,
     rover,
+    createdAt: o.timestamps?.created_at,
+    startedAt: o.timestamps?.started_at,
+    completedAt: o.timestamps?.completed_at,
+    cancelReason: o.cancel_reason ?? undefined,
   };
 }
 
 interface BackendProduct {
   sku: string;
   name: string;
+  price?: { amount_cents?: number; currency?: string };
   stock?:
     | {
         available?: number;
         reserved?: number;
-        minimumStock?: number; // camelCase en el nuevo backend
-        minimum_stock?: number; // fallback snake_case
+        minimumStock?: number;
+        minimum_stock?: number;
+        min?: number; // RFC field name
       }
     | number;
   available?: number;
-  location?: { zone?: string; line?: string; position?: string };
+  location?: {
+    zone?: string;
+    line?: string;
+    position?: string;
+    zone_code?: string;
+    number_line?: number;
+    position_name?: string;
+  };
   active?: boolean;
+  created_at?: string;
 }
 
 function mapProduct(p: BackendProduct): FrontendProduct {
@@ -163,15 +207,30 @@ function mapProduct(p: BackendProduct): FrontendProduct {
   const stockNum = typeof p.stock === "number" ? p.stock : null;
 
   const available = stockObj?.available ?? stockNum ?? p.available ?? 0;
+  const reserved = stockObj?.reserved ?? 0;
+  const minimum = stockObj?.minimumStock ?? stockObj?.minimum_stock ?? stockObj?.min ?? 0;
 
-  const minimum = stockObj?.minimumStock ?? stockObj?.minimum_stock ?? 0;
+  const priceCents = p.price?.amount_cents ?? 0;
+  const currency = p.price?.currency ?? "ARS";
 
-  const zone = [p.location?.zone, p.location?.line].filter(Boolean).join("-");
+  const zone = p.location?.zone_code
+    ? `${p.location.zone_code}-${p.location.number_line ?? "?"}`
+    : [p.location?.zone, p.location?.line].filter(Boolean).join("-");
 
   const status: FrontendProduct["status"] =
     available === 0 ? "agotado" : available <= minimum ? "bajo" : "ok";
 
-  return { sku: p.sku, name: p.name, zone: zone || "—", available, status };
+  return {
+    sku: p.sku,
+    name: p.name,
+    zone: zone || "—",
+    available,
+    reserved,
+    minimum,
+    priceCents,
+    currency,
+    status,
+  };
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -191,9 +250,13 @@ export async function getVehicles(): Promise<Rover[]> {
   }
 }
 
-export async function getOrders(status?: string): Promise<FrontendOrder[]> {
+export async function getOrders(status?: string, fromISO?: string): Promise<FrontendOrder[]> {
   try {
-    const path = status ? `/orders?status=${encodeURIComponent(status)}` : "/orders";
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (fromISO) params.set("from", fromISO);
+    const qs = params.toString();
+    const path = qs ? `/orders?${qs}` : "/orders";
     const res = await apiFetch(path);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
@@ -216,18 +279,25 @@ export async function getProducts(): Promise<FrontendProduct[]> {
     return list.map(mapProduct);
   } catch (err) {
     console.error("[api] getProducts → mock:", err);
-    return mockStock.map((s) => ({ ...s, status: s.status as FrontendProduct["status"] }));
+    return mockStock.map((s) => ({
+      ...s,
+      reserved: 0,
+      minimum: 0,
+      priceCents: 0,
+      currency: "ARS",
+      status: s.status as FrontendProduct["status"],
+    }));
   }
 }
 
-export async function getWsUrl(): Promise<string> {
+export async function getWsUrl(path: string = "/ws/v1/vehicles"): Promise<string> {
   const token = await getToken();
   if (!BASE_URL) {
     const proto =
       typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
     const host = typeof location !== "undefined" ? location.host : "localhost:8084";
-    return `${proto}//${host}/ws/v1/vehicles?token=${token}`;
+    return `${proto}//${host}${path}?token=${token}`;
   }
   const wsBase = BASE_URL.replace(/^https/, "wss").replace(/^http/, "ws");
-  return `${wsBase}/ws/v1/vehicles?token=${token}`;
+  return `${wsBase}${path}?token=${token}`;
 }

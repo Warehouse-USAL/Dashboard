@@ -6,7 +6,7 @@
 // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8090";
+const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8080";
 const backendWsUrl = backendUrl.replace(/^http/, "ws");
 
 // We deploy as a STATIC SPA behind nginx (served under the /dashboard/ path prefix
