@@ -1,5 +1,6 @@
-import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { getStoredToken } from "@/lib/api";
 import {
   Bell,
   CircuitBoard,
@@ -17,6 +18,13 @@ import { useInventoryWebSocket } from "@/hooks/useInventoryWebSocket";
 import { useOrderWebSocket } from "@/hooks/useOrderWebSocket";
 
 export const Route = createFileRoute("/_dash")({
+  // Gate the whole dashboard: no stored JWT -> bounce to the login screen.
+  // Guarded on the client only (the SPA prerender has no session at build time).
+  beforeLoad: () => {
+    if (typeof window !== "undefined" && !getStoredToken()) {
+      throw redirect({ to: "/login" });
+    }
+  },
   component: DashLayout,
 });
 

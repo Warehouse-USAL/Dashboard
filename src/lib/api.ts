@@ -29,47 +29,64 @@ export type FrontendProduct = {
 };
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
+// Each USER authenticates themselves — there is NO service credential baked into the
+// build. The login screen calls login(email, password); we keep the returned JWT in
+// sessionStorage (per-tab, gone when the tab closes). Nothing secret ships in the JS.
 
+const TOKEN_KEY = "wh_token";
 let cachedToken: string | null = null;
-let loginInFlight: Promise<string> | null = null;
 
-async function login(): Promise<string> {
+export function getStoredToken(): string | null {
+  if (cachedToken) return cachedToken;
+  if (typeof window !== "undefined") cachedToken = window.sessionStorage.getItem(TOKEN_KEY);
+  return cachedToken;
+}
+
+export function setStoredToken(token: string): void {
+  cachedToken = token;
+  if (typeof window !== "undefined") window.sessionStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearStoredToken(): void {
+  cachedToken = null;
+  if (typeof window !== "undefined") window.sessionStorage.removeItem(TOKEN_KEY);
+}
+
+/** Called by the login screen with the user's own credentials. */
+export async function login(email: string, password: string): Promise<void> {
   const res = await fetch(`${BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-    email: import.meta.env.VITE_ADMIN_EMAIL,
-    password: import.meta.env.VITE_ADMIN_PASSWORD,
-}),
+    body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(`Login failed: ${res.status}`);
   const body = (await res.json()) as { token: string };
-  return body.token;
+  setStoredToken(body.token);
+}
+
+function redirectToLogin(): void {
+  if (typeof window !== "undefined" && !window.location.pathname.endsWith("/login")) {
+    window.location.href = "/dashboard/login";
+  }
 }
 
 async function getToken(): Promise<string> {
-  if (cachedToken) return cachedToken;
-  if (!loginInFlight) {
-    loginInFlight = login()
-      .then((token) => {
-        cachedToken = token;
-        return token;
-      })
-      .finally(() => {
-        loginInFlight = null;
-      });
+  const token = getStoredToken();
+  if (!token) {
+    redirectToLogin();
+    throw new Error("Not authenticated");
   }
-  return loginInFlight;
+  return token;
 }
 
-async function apiFetch(path: string, retried = false): Promise<Response> {
+async function apiFetch(path: string): Promise<Response> {
   const token = await getToken();
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (res.status === 401 && !retried) {
-    cachedToken = null;
-    return apiFetch(path, true);
+  if (res.status === 401) {
+    clearStoredToken();
+    redirectToLogin();
   }
   return res;
 }

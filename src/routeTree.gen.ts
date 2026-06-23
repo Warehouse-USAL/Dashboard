@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashRouteImport } from './routes/_dash'
 import { Route as DashIndexRouteImport } from './routes/_dash.index'
 import { Route as DashVehiculosV2RouteImport } from './routes/_dash.vehiculos-v2'
@@ -18,6 +19,11 @@ import { Route as DashHomeRouteImport } from './routes/_dash.home'
 import { Route as DashConfiguracionRouteImport } from './routes/_dash.configuracion'
 import { Route as DashAlertasRouteImport } from './routes/_dash.alertas'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashRoute = DashRouteImport.update({
   id: '/_dash',
   getParentRoute: () => rootRouteImport,
@@ -60,6 +66,7 @@ const DashAlertasRoute = DashAlertasRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof DashIndexRoute
+  '/login': typeof LoginRoute
   '/alertas': typeof DashAlertasRoute
   '/configuracion': typeof DashConfiguracionRoute
   '/home': typeof DashHomeRoute
@@ -68,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/vehiculos-v2': typeof DashVehiculosV2Route
 }
 export interface FileRoutesByTo {
+  '/login': typeof LoginRoute
   '/alertas': typeof DashAlertasRoute
   '/configuracion': typeof DashConfiguracionRoute
   '/home': typeof DashHomeRoute
@@ -79,6 +87,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_dash': typeof DashRouteWithChildren
+  '/login': typeof LoginRoute
   '/_dash/alertas': typeof DashAlertasRoute
   '/_dash/configuracion': typeof DashConfiguracionRoute
   '/_dash/home': typeof DashHomeRoute
@@ -91,6 +100,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
     | '/alertas'
     | '/configuracion'
     | '/home'
@@ -99,6 +109,7 @@ export interface FileRouteTypes {
     | '/vehiculos-v2'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/login'
     | '/alertas'
     | '/configuracion'
     | '/home'
@@ -109,6 +120,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_dash'
+    | '/login'
     | '/_dash/alertas'
     | '/_dash/configuracion'
     | '/_dash/home'
@@ -120,10 +132,18 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   DashRoute: typeof DashRouteWithChildren
+  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_dash': {
       id: '/_dash'
       path: ''
@@ -207,6 +227,7 @@ const DashRouteWithChildren = DashRoute._addFileChildren(DashRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   DashRoute: DashRouteWithChildren,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
