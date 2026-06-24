@@ -85,6 +85,14 @@ function HomePage() {
   const compliance =
     completadas + canceladas > 0 ? Math.round((completadas / (completadas + canceladas)) * 100) : 0;
 
+  const inventarioValor = useMemo(() => {
+    const total = products.reduce((sum, p) => sum + (p.available * p.priceCents) / 100, 0);
+    if (total === 0) return "—";
+    if (total >= 1_000_000) return `$${(total / 1_000_000).toFixed(1)}M`;
+    if (total >= 1_000) return `$${(total / 1_000).toFixed(0)}K`;
+    return `$${Math.round(total).toLocaleString("es-AR")}`;
+  }, [products]);
+
   const picking = throughput.map((t) => ({ h: t.h, unidades: t.ordenes * 2 + 30 }));
   const ordersHour = throughput.map((t, i) => ({
     h: t.h,
@@ -135,10 +143,10 @@ function HomePage() {
           accent="accent"
         />
         <KpiCard
-          label="Inventario valorizado"
-          value="—"
+          label="Valor del inventario"
+          value={inventarioValor}
           icon={DollarSign}
-          trend="requiere precio en API"
+          trend="stock disponible × precio"
           accent="primary"
         />
         <KpiCard

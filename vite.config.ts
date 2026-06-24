@@ -32,6 +32,7 @@ export default defineConfig({
         "/vehicles": { target: backendUrl, changeOrigin: true },
         "/orders": { target: backendUrl, changeOrigin: true },
         "/products": { target: backendUrl, changeOrigin: true },
+        "/warehouse": { target: backendUrl, changeOrigin: true },
         "/ws": { target: backendWsUrl, ws: true, changeOrigin: true },
       },
     },
