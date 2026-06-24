@@ -138,8 +138,8 @@ interface BackendOrder {
   id: string;
   status?: string;
   items?: BackendOrderItem[];
+  assigned_vehicle_id?: string | null;
   assignedVehicleId?: string | null;
-  // fallbacks por si el back cambia de nuevo
   product?: string;
   product_sku?: string;
   quantity?: number;
@@ -162,7 +162,7 @@ function mapOrder(o: BackendOrder): FrontendOrder {
   const product = o.product ?? firstItem?.sku ?? o.product_sku ?? "—";
   const qty = firstItem?.quantity ?? o.quantity ?? 1;
   const rawState = o.status ?? "pending";
-  const rover = o.assignedVehicleId ?? o.vehicle_id ?? o.rover ?? "—";
+  const rover = o.assigned_vehicle_id ?? o.assignedVehicleId ?? o.vehicle_id ?? o.rover ?? "—";
   return {
     id: o.id,
     product,
@@ -256,10 +256,10 @@ export async function getVehicles(): Promise<Rover[]> {
 export async function getOrders(status?: string, fromISO?: string): Promise<FrontendOrder[]> {
   try {
     const params = new URLSearchParams();
+    params.set("size", "100");
     if (status) params.set("status", status);
     if (fromISO) params.set("from", fromISO);
-    const qs = params.toString();
-    const path = qs ? `/orders?${qs}` : "/orders";
+    const path = `/orders?${params.toString()}`;
     const res = await apiFetch(path);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
@@ -273,7 +273,7 @@ export async function getOrders(status?: string, fromISO?: string): Promise<Fron
 
 export async function getProducts(): Promise<FrontendProduct[]> {
   try {
-    const res = await apiFetch("/products");
+    const res = await apiFetch("/products?size=100");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
     const list = (
