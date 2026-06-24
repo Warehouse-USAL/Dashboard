@@ -1,11 +1,19 @@
-import { createFileRoute, Link, Outlet, redirect, useRouterState } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  redirect,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { getStoredToken } from "@/lib/api";
+import { clearStoredToken, getStoredToken } from "@/lib/api";
 import {
   Bell,
   CircuitBoard,
   LayoutDashboard,
   ListChecks,
+  LogOut,
   Map as MapIcon,
   PackageSearch,
   Settings,
@@ -39,8 +47,14 @@ const nav = [
 
 function DashLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
   const [now, setNow] = useState<string>("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  function handleLogout() {
+    clearStoredToken();
+    navigate({ to: "/login" });
+  }
   useInventoryWebSocket();
   useOrderWebSocket();
 
@@ -141,6 +155,14 @@ function DashLayout() {
             <div className="w-9 h-9 rounded-md bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground text-sm font-bold">
               OP
             </div>
+            <button
+              onClick={handleLogout}
+              className="w-9 h-9 rounded-md border border-border bg-secondary/50 hover:bg-destructive/10 hover:border-destructive/40 hover:text-destructive flex items-center justify-center transition-colors"
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </header>
 
