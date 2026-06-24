@@ -3,6 +3,7 @@ import { getProducts, type FrontendProduct } from "@/lib/api";
 import { stock as mockStock } from "@/lib/dashboard-data";
 
 const INITIAL_PRODUCTS: FrontendProduct[] = mockStock.map((s) => ({
+  id: s.sku,
   sku: s.sku,
   name: s.name,
   zone: s.zone,
