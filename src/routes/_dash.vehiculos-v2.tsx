@@ -468,11 +468,7 @@ function RoversPage() {
       </Panel>
 
       {/* Productividad por rover */}
-      <ProductividadPorRover
-        rovers={rovers}
-        period={period}
-        range={customRange}
-      />
+      <ProductividadPorRover rovers={rovers} period={period} range={customRange} />
 
       {/* Histórico + Pareto + Actividad */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -625,7 +621,9 @@ function RoverRow({ r }: { r: Rover }) {
           </div>
         </div>
       </td>
-      <td className="py-3 px-2 text-xs font-mono">X:{Math.round(r.x)} Y:{Math.round(r.y)}</td>
+      <td className="py-3 px-2 text-xs font-mono">
+        X:{Math.round(r.x)} Y:{Math.round(r.y)}
+      </td>
       <td className="py-3 px-2 text-xs">{r.order ?? "—"}</td>
       <td className="py-3 px-2 text-xs text-right text-muted-foreground">
         {r.hours > 0 ? `${r.hours.toFixed(1)} h` : "—"}
@@ -917,7 +915,8 @@ function ProductividadPorRover({
   );
 
   const maxOrdenes = Math.max(1, ...rows.map((r) => r.ordenes));
-  const efColor = (e: number) => (e >= 85 ? "bg-primary" : e >= 65 ? "bg-warning" : "bg-destructive");
+  const efColor = (e: number) =>
+    e >= 85 ? "bg-primary" : e >= 65 ? "bg-warning" : "bg-destructive";
 
   return (
     <Panel

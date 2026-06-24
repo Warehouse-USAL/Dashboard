@@ -883,7 +883,9 @@ function OrdenesPage() {
         <Panel className="self-start" title="Tasa de cumplimiento">
           <div className="flex flex-col items-center justify-center py-4">
             <span className="text-3xl font-bold">{cumplimiento.pct}%</span>
-            <span className="text-[11px] mt-1 text-muted-foreground">Completadas vs canceladas</span>
+            <span className="text-[11px] mt-1 text-muted-foreground">
+              Completadas vs canceladas
+            </span>
           </div>
         </Panel>
       </div>
@@ -1224,11 +1226,7 @@ function KpiCard({
       <p
         className={cn(
           "text-[10px] mt-1",
-          neutral
-            ? "text-muted-foreground"
-            : positive
-              ? "text-emerald-500"
-              : "text-destructive",
+          neutral ? "text-muted-foreground" : positive ? "text-emerald-500" : "text-destructive",
         )}
       >
         {sub}

@@ -246,7 +246,12 @@ export async function getVehicles(): Promise<Rover[]> {
   }
 }
 
-export async function getOrders(status?: string, fromISO?: string, size?: number, vehicleId?: string): Promise<FrontendOrder[]> {
+export async function getOrders(
+  status?: string,
+  fromISO?: string,
+  size?: number,
+  vehicleId?: string,
+): Promise<FrontendOrder[]> {
   try {
     const params = new URLSearchParams();
     if (status) params.set("status", status);

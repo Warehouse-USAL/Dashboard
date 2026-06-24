@@ -86,7 +86,11 @@ export function useInventoryMetrics() {
     completedOrders.forEach((order) => {
       const sku = order.product;
       if (!sku || sku === "—") return;
-      const entry = skuMap.get(sku) ?? { totalQty: 0, lastDate: null, orderDays: new Set<string>() };
+      const entry = skuMap.get(sku) ?? {
+        totalQty: 0,
+        lastDate: null,
+        orderDays: new Set<string>(),
+      };
       entry.totalQty += order.qty;
       // Track unique calendar days with orders to compute demand per active day
       const dayStr = (order.completedAt ?? order.createdAt ?? "").split("T")[0];
