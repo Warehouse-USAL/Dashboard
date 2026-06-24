@@ -1,4 +1,4 @@
-export type RoverState = "activo" | "inactivo" | "detenido" | "cargando";
+export type RoverState = "idle" | "busy" | "offline" | "error";
 
 export interface Rover {
   id: string;
@@ -18,7 +18,7 @@ export const initialRovers: Rover[] = [
   {
     id: "R-01",
     name: "Rover Alpha",
-    state: "activo",
+    state: "busy",
     battery: 82,
     hours: 4.2,
     order: "OR-12504",
@@ -31,7 +31,7 @@ export const initialRovers: Rover[] = [
   {
     id: "R-02",
     name: "Rover Bravo",
-    state: "activo",
+    state: "busy",
     battery: 64,
     hours: 6.1,
     order: "OR-12508",
@@ -44,7 +44,7 @@ export const initialRovers: Rover[] = [
   {
     id: "R-03",
     name: "Rover Charlie",
-    state: "cargando",
+    state: "idle",
     battery: 18,
     hours: 8.0,
     order: null,
@@ -189,10 +189,10 @@ export const utilization = [
 ];
 
 export const stateStyles: Record<RoverState, string> = {
-  activo: "bg-primary/15 text-primary border-primary/30",
-  inactivo: "bg-muted text-muted-foreground border-border",
-  detenido: "bg-destructive/15 text-destructive border-destructive/30",
-  cargando: "bg-warning/15 text-warning border-warning/30",
+  busy: "bg-primary/15 text-primary border-primary/30",
+  idle: "bg-warning/15 text-warning border-warning/30",
+  offline: "bg-muted text-muted-foreground border-border",
+  error: "bg-destructive/15 text-destructive border-destructive/30",
 };
 
 export function batteryTone(pct: number) {
@@ -219,7 +219,7 @@ function startLoop() {
   _started = true;
   setInterval(() => {
     _rovers = _rovers.map((r) => {
-      if (r.state !== "activo") return r;
+      if (r.state !== "busy") return r;
       let { x, y, vx, vy } = r;
       x += vx;
       y += vy;

@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getOrders } from "@/lib/api";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
@@ -12,7 +14,6 @@ import {
   Zap,
   Clock,
   Wrench,
-  TrendingUp,
   ChevronDown,
   Check,
 } from "lucide-react";
@@ -60,10 +61,10 @@ function periodLabel(value: PeriodId, range?: DateRange) {
 }
 
 const STATE_FILTERS: { id: RoverState; label: string }[] = [
-  { id: "activo", label: "Activo" },
-  { id: "cargando", label: "Cargando" },
-  { id: "detenido", label: "Detenido" },
-  { id: "inactivo", label: "Inactivo" },
+  { id: "busy", label: "Busy" },
+  { id: "idle", label: "Idle" },
+  { id: "error", label: "Error" },
+  { id: "offline", label: "Offline" },
 ];
 
 // Datos sintéticos de histórico y pareto por periodo
@@ -351,15 +352,14 @@ function RoversPage() {
   );
 
   const totalRovers = rovers.length;
-  const activos = rovers.filter((r) => r.state === "activo").length;
-  const cargando = rovers.filter((r) => r.state === "cargando").length;
-  const detenidos = rovers.filter((r) => r.state === "detenido").length;
+  const activos = rovers.filter((r) => r.state === "busy").length;
+  const cargando = rovers.filter((r) => r.state === "idle").length;
+  const detenidos = rovers.filter((r) => r.state === "error").length;
   const disponibilidad = totalRovers ? Math.round((activos / totalRovers) * 100) : 0;
   const utilizacion = totalRovers
     ? Math.round((rovers.filter((r) => r.order).length / totalRovers) * 100)
     : 0;
   const horasTotales = rovers.reduce((a, r) => a + r.hours, 0);
-  const ordenesCompletadas = ACTIVIDAD_BY_PERIOD[dataPeriod].reduce((a, x) => a + x.ordenes, 0);
 
   const kpis = [
     {
@@ -374,7 +374,7 @@ function RoversPage() {
       icon: Activity,
       label: "Disponibilidad",
       value: `${disponibilidad}%`,
-      sub: `${cargando} cargando · ${detenidos} detenidos`,
+      sub: `${cargando} idle · ${detenidos} error`,
       tone: "success" as const,
     },
     {
@@ -397,13 +397,6 @@ function RoversPage() {
       value: "18.7 min",
       sub: "Prom. reparación",
       tone: "warning" as const,
-    },
-    {
-      icon: TrendingUp,
-      label: "Productividad",
-      value: ordenesCompletadas.toLocaleString("es-AR"),
-      sub: "Órdenes completadas",
-      tone: "primary" as const,
     },
   ];
 
@@ -467,17 +460,16 @@ function RoversPage() {
           </table>
         </div>
         <div className="flex flex-wrap gap-4 mt-4 text-[11px] text-muted-foreground">
-          <LegendDot color="bg-primary" label="activo" />
-          <LegendDot color="bg-warning" label="cargando" />
-          <LegendDot color="bg-destructive" label="detenido" />
-          <LegendDot color="bg-muted-foreground" label="inactivo" />
+          <LegendDot color="bg-primary" label="busy" />
+          <LegendDot color="bg-warning" label="idle" />
+          <LegendDot color="bg-destructive" label="error" />
+          <LegendDot color="bg-muted-foreground" label="offline" />
         </div>
       </Panel>
 
       {/* Productividad por rover */}
       <ProductividadPorRover
         rovers={rovers}
-        totalOrdenes={ordenesCompletadas}
         period={period}
         range={customRange}
       />
@@ -616,7 +608,7 @@ function RoverRow({ r }: { r: Rover }) {
       <td className="py-3 px-2 text-xs font-bold">
         <span className="flex items-center gap-2">
           <Truck className="w-3.5 h-3.5 text-muted-foreground" />
-          {r.id}
+          {r.name}
         </span>
       </td>
       <td className="py-3 px-2">
@@ -633,9 +625,11 @@ function RoverRow({ r }: { r: Rover }) {
           </div>
         </div>
       </td>
-      <td className="py-3 px-2 text-xs">{r.zone}</td>
+      <td className="py-3 px-2 text-xs font-mono">X:{Math.round(r.x)} Y:{Math.round(r.y)}</td>
       <td className="py-3 px-2 text-xs">{r.order ?? "—"}</td>
-      <td className="py-3 px-2 text-xs text-right text-muted-foreground">{r.hours.toFixed(1)} h</td>
+      <td className="py-3 px-2 text-xs text-right text-muted-foreground">
+        {r.hours > 0 ? `${r.hours.toFixed(1)} h` : "—"}
+      </td>
     </tr>
   );
 }
@@ -706,10 +700,10 @@ function KpiCard({
 
 function StateBadge({ state }: { state: string }) {
   const map: Record<string, string> = {
-    activo: "bg-primary/15 text-primary border-primary/30",
-    cargando: "bg-warning/15 text-warning border-warning/30",
-    detenido: "bg-destructive/15 text-destructive border-destructive/30",
-    inactivo: "bg-muted text-muted-foreground border-border",
+    busy: "bg-primary/15 text-primary border-primary/30",
+    idle: "bg-warning/15 text-warning border-warning/30",
+    error: "bg-destructive/15 text-destructive border-destructive/30",
+    offline: "bg-muted text-muted-foreground border-border",
   };
   return (
     <span className={`text-[10px] px-2 py-0.5 rounded-full border ${map[state] ?? map.inactivo}`}>
@@ -880,45 +874,50 @@ function FilterMenu({
   );
 }
 
-// Productividad por rover (órdenes completadas + eficiencia para cumplir la orden)
 function ProductividadPorRover({
   rovers,
-  totalOrdenes,
   period,
   range,
 }: {
   rovers: Rover[];
-  totalOrdenes: number;
   period: PeriodId;
   range?: DateRange;
 }) {
-  // Reparto determinístico de órdenes por rover según estado y batería.
-  const weights = rovers.map((r) => {
-    const base =
-      r.state === "activo"
-        ? 1
-        : r.state === "cargando"
-          ? 0.45
-          : r.state === "detenido"
-            ? 0.15
-            : 0.25;
-    return base * (0.6 + r.battery / 250); // 0.6–1.0 aprox
-  });
-  const totalW = weights.reduce((a, b) => a + b, 0) || 1;
+  const from24h = useMemo(() => {
+    const d = new Date();
+    d.setHours(d.getHours() - 24);
+    return d.toISOString();
+  }, []);
 
-  const rows = rovers.map((r, i) => {
-    const ordenes = Math.round((weights[i] / totalW) * totalOrdenes);
-    // Eficiencia: % de órdenes cumplidas exitosamente (sintética según estado y batería)
-    const efBase =
-      r.state === "activo" ? 90 : r.state === "cargando" ? 70 : r.state === "detenido" ? 45 : 60;
-    const eficiencia = Math.max(30, Math.min(99, Math.round(efBase + (r.battery - 50) / 5)));
-    return { id: r.id, ordenes, eficiencia };
+  const { data: completed24h = [] } = useQuery({
+    queryKey: ["orders-completed-24h-prod", from24h],
+    queryFn: () => getOrders("completed", from24h, 50),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
+
+  const ordersByVehicle = useMemo(() => {
+    const map = new Map<string, number>();
+    completed24h.forEach((o) => {
+      if (o.rover && o.rover !== "—") map.set(o.rover, (map.get(o.rover) ?? 0) + 1);
+    });
+    return map;
+  }, [completed24h]);
+
+  const rows = useMemo(
+    () =>
+      rovers.map((r) => {
+        const ordenes = ordersByVehicle.get(r.id) ?? 0;
+        const efBase =
+          r.state === "busy" ? 90 : r.state === "idle" ? 70 : r.state === "error" ? 45 : 60;
+        const eficiencia = Math.max(30, Math.min(99, Math.round(efBase + (r.battery - 50) / 5)));
+        return { id: r.id, name: r.name, ordenes, eficiencia };
+      }),
+    [rovers, ordersByVehicle],
+  );
 
   const maxOrdenes = Math.max(1, ...rows.map((r) => r.ordenes));
-
-  const efColor = (e: number) =>
-    e >= 85 ? "bg-primary" : e >= 65 ? "bg-warning" : "bg-destructive";
+  const efColor = (e: number) => (e >= 85 ? "bg-primary" : e >= 65 ? "bg-warning" : "bg-destructive");
 
   return (
     <Panel
@@ -940,7 +939,7 @@ function ProductividadPorRover({
                 <td className="py-3 px-2 text-xs font-bold">
                   <span className="flex items-center gap-2">
                     <Truck className="w-3.5 h-3.5 text-muted-foreground" />
-                    {r.id}
+                    {r.name}
                   </span>
                 </td>
                 <td className="py-3 px-2">

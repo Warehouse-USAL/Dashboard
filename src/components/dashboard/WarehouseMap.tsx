@@ -22,10 +22,10 @@ export function WarehouseMap({
     { y: 60, label: "Pasillo 2" },
   ];
   const stateDot: Record<RoverState, string> = {
-    activo: "bg-primary ring-2 ring-primary/40",
-    cargando: "bg-warning ring-2 ring-warning/30",
-    detenido: "bg-destructive ring-2 ring-destructive/30",
-    inactivo: "bg-muted-foreground",
+    busy: "bg-primary ring-2 ring-primary/40",
+    idle: "bg-warning ring-2 ring-warning/30",
+    error: "bg-destructive ring-2 ring-destructive/30",
+    offline: "bg-muted-foreground",
   };
   return (
     <div className="relative w-full aspect-[16/9] rounded-lg border border-border bg-secondary overflow-hidden">
@@ -63,11 +63,11 @@ export function WarehouseMap({
         const inner = (
           <div className="relative">
             <div className={`w-3 h-3 rounded-full ${stateDot[r.state]}`} />
-            {r.state === "activo" && (
+            {r.state === "busy" && (
               <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping" />
             )}
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[9px] font-mono text-foreground/80 whitespace-nowrap">
-              {r.id}
+              {r.name}
             </span>
           </div>
         );

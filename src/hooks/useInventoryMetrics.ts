@@ -50,7 +50,7 @@ export function useInventoryMetrics() {
   const from30d = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().split("T")[0];
+    return d.toISOString();
   }, []);
 
   const { data: products = MOCK_PRODUCTS_INIT } = useQuery({
@@ -78,13 +78,19 @@ export function useInventoryMetrics() {
     const sevenDaysMs = 7 * 86_400_000;
 
     // Aggregate demand and last order date per SKU from completed orders (last 30d)
-    const skuMap = new Map<string, { totalQty: number; lastDate: string | null }>();
+    const skuMap = new Map<
+      string,
+      { totalQty: number; lastDate: string | null; orderDays: Set<string> }
+    >();
 
     completedOrders.forEach((order) => {
       const sku = order.product;
       if (!sku || sku === "—") return;
-      const entry = skuMap.get(sku) ?? { totalQty: 0, lastDate: null };
+      const entry = skuMap.get(sku) ?? { totalQty: 0, lastDate: null, orderDays: new Set<string>() };
       entry.totalQty += order.qty;
+      // Track unique calendar days with orders to compute demand per active day
+      const dayStr = (order.completedAt ?? order.createdAt ?? "").split("T")[0];
+      if (dayStr) entry.orderDays.add(dayStr);
       if (order.completedAt) {
         if (!entry.lastDate || order.completedAt > entry.lastDate)
           entry.lastDate = order.completedAt;
@@ -110,7 +116,7 @@ export function useInventoryMetrics() {
 
     const enriched: EnrichedProduct[] = products.map((p) => {
       const info = skuMap.get(p.sku);
-      const dailyDemand = info ? info.totalQty / 30 : 0;
+      const dailyDemand = info ? info.totalQty / Math.max(info.orderDays.size, 1) : 0;
       const coverageDays = dailyDemand > 0 ? p.available / dailyDemand : p.available > 0 ? 9999 : 0;
       const stockValue = (p.available * p.priceCents) / 100;
       const reqNeto = Math.max(0, p.minimum - p.available);
@@ -164,7 +170,7 @@ export function useInventoryMetrics() {
     const deadStockValue = enriched
       .filter((p) => p.invStatus === "dead")
       .reduce((a, p) => a + p.stockValue, 0);
-    const finiteCovers = enriched.filter((p) => p.coverageDays > 0 && p.coverageDays < 9999);
+    const finiteCovers = enriched.filter((p) => p.dailyDemand > 0 && p.coverageDays < 9999);
     const avgCoverage = finiteCovers.length
       ? finiteCovers.reduce((a, p) => a + p.coverageDays, 0) / finiteCovers.length
       : 0;
@@ -177,6 +183,19 @@ export function useInventoryMetrics() {
       deadStockValue,
     };
 
-    return { products: enriched, kpis };
+    // Zone occupancy from real position data: Σ current_stock / Σ maximum_capacity per zone
+    const zoneMap = new Map<string, { stock: number; capacity: number }>();
+    positions.forEach((pos) => {
+      if (!pos.zone_code) return;
+      const entry = zoneMap.get(pos.zone_code) ?? { stock: 0, capacity: 0 };
+      entry.stock += pos.current_stock;
+      entry.capacity += pos.maximum_capacity ?? 0;
+      zoneMap.set(pos.zone_code, entry);
+    });
+    const zoneOccupancy = Array.from(zoneMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([zone, { stock, capacity }]) => ({ zone, stock, capacity }));
+
+    return { products: enriched, kpis, zoneOccupancy };
   }, [products, completedOrders, positions]);
 }
