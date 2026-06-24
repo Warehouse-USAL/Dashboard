@@ -9,15 +9,21 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashRouteImport } from './routes/_dash'
 import { Route as DashIndexRouteImport } from './routes/_dash.index'
-import { Route as DashOrdenesRouteImport } from './routes/_dash.ordenes'
-import { Route as DashMapaRouteImport } from './routes/_dash.mapa'
-import { Route as DashKpisRouteImport } from './routes/_dash.kpis'
-import { Route as DashInventarioRouteImport } from './routes/_dash.inventario'
+import { Route as DashVehiculosV2RouteImport } from './routes/_dash.vehiculos-v2'
+import { Route as DashOrdenesV2RouteImport } from './routes/_dash.ordenes-v2'
+import { Route as DashInventarioV2RouteImport } from './routes/_dash.inventario-v2'
+import { Route as DashHomeRouteImport } from './routes/_dash.home'
 import { Route as DashConfiguracionRouteImport } from './routes/_dash.configuracion'
 import { Route as DashAlertasRouteImport } from './routes/_dash.alertas'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashRoute = DashRouteImport.update({
   id: '/_dash',
   getParentRoute: () => rootRouteImport,
@@ -27,24 +33,24 @@ const DashIndexRoute = DashIndexRouteImport.update({
   path: '/',
   getParentRoute: () => DashRoute,
 } as any)
-const DashOrdenesRoute = DashOrdenesRouteImport.update({
-  id: '/ordenes',
-  path: '/ordenes',
+const DashVehiculosV2Route = DashVehiculosV2RouteImport.update({
+  id: '/vehiculos-v2',
+  path: '/vehiculos-v2',
   getParentRoute: () => DashRoute,
 } as any)
-const DashMapaRoute = DashMapaRouteImport.update({
-  id: '/mapa',
-  path: '/mapa',
+const DashOrdenesV2Route = DashOrdenesV2RouteImport.update({
+  id: '/ordenes-v2',
+  path: '/ordenes-v2',
   getParentRoute: () => DashRoute,
 } as any)
-const DashKpisRoute = DashKpisRouteImport.update({
-  id: '/kpis',
-  path: '/kpis',
+const DashInventarioV2Route = DashInventarioV2RouteImport.update({
+  id: '/inventario-v2',
+  path: '/inventario-v2',
   getParentRoute: () => DashRoute,
 } as any)
-const DashInventarioRoute = DashInventarioRouteImport.update({
-  id: '/inventario',
-  path: '/inventario',
+const DashHomeRoute = DashHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
   getParentRoute: () => DashRoute,
 } as any)
 const DashConfiguracionRoute = DashConfiguracionRouteImport.update({
@@ -60,70 +66,84 @@ const DashAlertasRoute = DashAlertasRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof DashIndexRoute
+  '/login': typeof LoginRoute
   '/alertas': typeof DashAlertasRoute
   '/configuracion': typeof DashConfiguracionRoute
-  '/inventario': typeof DashInventarioRoute
-  '/kpis': typeof DashKpisRoute
-  '/mapa': typeof DashMapaRoute
-  '/ordenes': typeof DashOrdenesRoute
+  '/home': typeof DashHomeRoute
+  '/inventario-v2': typeof DashInventarioV2Route
+  '/ordenes-v2': typeof DashOrdenesV2Route
+  '/vehiculos-v2': typeof DashVehiculosV2Route
 }
 export interface FileRoutesByTo {
+  '/login': typeof LoginRoute
   '/alertas': typeof DashAlertasRoute
   '/configuracion': typeof DashConfiguracionRoute
-  '/inventario': typeof DashInventarioRoute
-  '/kpis': typeof DashKpisRoute
-  '/mapa': typeof DashMapaRoute
-  '/ordenes': typeof DashOrdenesRoute
+  '/home': typeof DashHomeRoute
+  '/inventario-v2': typeof DashInventarioV2Route
+  '/ordenes-v2': typeof DashOrdenesV2Route
+  '/vehiculos-v2': typeof DashVehiculosV2Route
   '/': typeof DashIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_dash': typeof DashRouteWithChildren
+  '/login': typeof LoginRoute
   '/_dash/alertas': typeof DashAlertasRoute
   '/_dash/configuracion': typeof DashConfiguracionRoute
-  '/_dash/inventario': typeof DashInventarioRoute
-  '/_dash/kpis': typeof DashKpisRoute
-  '/_dash/mapa': typeof DashMapaRoute
-  '/_dash/ordenes': typeof DashOrdenesRoute
+  '/_dash/home': typeof DashHomeRoute
+  '/_dash/inventario-v2': typeof DashInventarioV2Route
+  '/_dash/ordenes-v2': typeof DashOrdenesV2Route
+  '/_dash/vehiculos-v2': typeof DashVehiculosV2Route
   '/_dash/': typeof DashIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
     | '/alertas'
     | '/configuracion'
-    | '/inventario'
-    | '/kpis'
-    | '/mapa'
-    | '/ordenes'
+    | '/home'
+    | '/inventario-v2'
+    | '/ordenes-v2'
+    | '/vehiculos-v2'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/login'
     | '/alertas'
     | '/configuracion'
-    | '/inventario'
-    | '/kpis'
-    | '/mapa'
-    | '/ordenes'
+    | '/home'
+    | '/inventario-v2'
+    | '/ordenes-v2'
+    | '/vehiculos-v2'
     | '/'
   id:
     | '__root__'
     | '/_dash'
+    | '/login'
     | '/_dash/alertas'
     | '/_dash/configuracion'
-    | '/_dash/inventario'
-    | '/_dash/kpis'
-    | '/_dash/mapa'
-    | '/_dash/ordenes'
+    | '/_dash/home'
+    | '/_dash/inventario-v2'
+    | '/_dash/ordenes-v2'
+    | '/_dash/vehiculos-v2'
     | '/_dash/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   DashRoute: typeof DashRouteWithChildren
+  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_dash': {
       id: '/_dash'
       path: ''
@@ -138,32 +158,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashIndexRouteImport
       parentRoute: typeof DashRoute
     }
-    '/_dash/ordenes': {
-      id: '/_dash/ordenes'
-      path: '/ordenes'
-      fullPath: '/ordenes'
-      preLoaderRoute: typeof DashOrdenesRouteImport
+    '/_dash/vehiculos-v2': {
+      id: '/_dash/vehiculos-v2'
+      path: '/vehiculos-v2'
+      fullPath: '/vehiculos-v2'
+      preLoaderRoute: typeof DashVehiculosV2RouteImport
       parentRoute: typeof DashRoute
     }
-    '/_dash/mapa': {
-      id: '/_dash/mapa'
-      path: '/mapa'
-      fullPath: '/mapa'
-      preLoaderRoute: typeof DashMapaRouteImport
+    '/_dash/ordenes-v2': {
+      id: '/_dash/ordenes-v2'
+      path: '/ordenes-v2'
+      fullPath: '/ordenes-v2'
+      preLoaderRoute: typeof DashOrdenesV2RouteImport
       parentRoute: typeof DashRoute
     }
-    '/_dash/kpis': {
-      id: '/_dash/kpis'
-      path: '/kpis'
-      fullPath: '/kpis'
-      preLoaderRoute: typeof DashKpisRouteImport
+    '/_dash/inventario-v2': {
+      id: '/_dash/inventario-v2'
+      path: '/inventario-v2'
+      fullPath: '/inventario-v2'
+      preLoaderRoute: typeof DashInventarioV2RouteImport
       parentRoute: typeof DashRoute
     }
-    '/_dash/inventario': {
-      id: '/_dash/inventario'
-      path: '/inventario'
-      fullPath: '/inventario'
-      preLoaderRoute: typeof DashInventarioRouteImport
+    '/_dash/home': {
+      id: '/_dash/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof DashHomeRouteImport
       parentRoute: typeof DashRoute
     }
     '/_dash/configuracion': {
@@ -186,20 +206,20 @@ declare module '@tanstack/react-router' {
 interface DashRouteChildren {
   DashAlertasRoute: typeof DashAlertasRoute
   DashConfiguracionRoute: typeof DashConfiguracionRoute
-  DashInventarioRoute: typeof DashInventarioRoute
-  DashKpisRoute: typeof DashKpisRoute
-  DashMapaRoute: typeof DashMapaRoute
-  DashOrdenesRoute: typeof DashOrdenesRoute
+  DashHomeRoute: typeof DashHomeRoute
+  DashInventarioV2Route: typeof DashInventarioV2Route
+  DashOrdenesV2Route: typeof DashOrdenesV2Route
+  DashVehiculosV2Route: typeof DashVehiculosV2Route
   DashIndexRoute: typeof DashIndexRoute
 }
 
 const DashRouteChildren: DashRouteChildren = {
   DashAlertasRoute: DashAlertasRoute,
   DashConfiguracionRoute: DashConfiguracionRoute,
-  DashInventarioRoute: DashInventarioRoute,
-  DashKpisRoute: DashKpisRoute,
-  DashMapaRoute: DashMapaRoute,
-  DashOrdenesRoute: DashOrdenesRoute,
+  DashHomeRoute: DashHomeRoute,
+  DashInventarioV2Route: DashInventarioV2Route,
+  DashOrdenesV2Route: DashOrdenesV2Route,
+  DashVehiculosV2Route: DashVehiculosV2Route,
   DashIndexRoute: DashIndexRoute,
 }
 
@@ -207,6 +227,7 @@ const DashRouteWithChildren = DashRoute._addFileChildren(DashRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   DashRoute: DashRouteWithChildren,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

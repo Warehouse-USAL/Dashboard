@@ -21,6 +21,14 @@ dist-ssr
 .dev.vars
 .env
 
+# Backend runtime data — never commit DB/object-store state
+wh-backend/data/
+**/.minio.sys/
+*.wt
+*.turtle
+mongod.lock
+WiredTiger*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
