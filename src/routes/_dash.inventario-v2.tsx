@@ -84,8 +84,6 @@ type SortKey =
 const ZONES = ["A", "B", "C", "D", "E"] as const;
 type Zone = (typeof ZONES)[number];
 
-const ZONE_CAPACITY: Record<Zone, number> = { A: 200, B: 200, C: 150, D: 120, E: 150 };
-
 // ─── Mock movimientos data (no endpoint in RFC) ───────────────────────────────
 
 const PERIOD_OPTIONS = [
@@ -191,7 +189,7 @@ function periodLabel(value: PeriodId, range?: DateRange): string {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 function InventarioPage() {
-  const { products, kpis } = useInventoryMetrics();
+  const { products, kpis, zoneOccupancy } = useInventoryMetrics();
 
   const [zoneFilter, setZoneFilter] = useState<Set<Zone>>(new Set(ZONES));
   const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(
@@ -229,22 +227,16 @@ function InventarioPage() {
     value: distByStatus[k],
   }));
 
-  // Zone occupancy — real available stock grouped by zone, mock capacity
+  // Zone occupancy — real Σ current_stock / Σ maximum_capacity per zone from backend positions
   const occupancy = useMemo(() => {
-    const byZone = new Map<Zone, number>();
-    products.forEach((p) => {
-      const z = p.zone.split("-")[0] as Zone;
-      if ((ZONES as readonly string[]).includes(z))
-        byZone.set(z, (byZone.get(z) ?? 0) + p.available);
-    });
-    return ZONES.filter((z) => zoneFilter.has(z)).map((z) => {
-      const used = byZone.get(z) ?? 0;
-      const cap = ZONE_CAPACITY[z];
-      const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
-      const tone = pct >= 85 ? "bg-rose-500" : pct >= 65 ? "bg-amber-500" : "bg-emerald-500";
-      return { zone: z, used, cap, pct, tone };
-    });
-  }, [products, zoneFilter]);
+    return zoneOccupancy
+      .filter((z) => zoneFilter.has(z.zone as Zone) || !ZONES.includes(z.zone as Zone))
+      .map((z) => {
+        const pct = z.capacity > 0 ? Math.min(100, Math.round((z.stock / z.capacity) * 100)) : 0;
+        const tone = pct >= 85 ? "bg-rose-500" : pct >= 65 ? "bg-amber-500" : "bg-emerald-500";
+        return { zone: z.zone, used: z.stock, cap: z.capacity, pct, tone };
+      });
+  }, [zoneOccupancy, zoneFilter]);
 
   // Top 5 by daily demand (rotation)
   const topRotacion = useMemo(
@@ -721,9 +713,7 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
           </span>
         </div>
       </td>
-      <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
-        {p.reqNeto > 0 ? `${p.reqNeto} u` : "—"}
-      </td>
+      <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">—</td>
       <td className="py-3 px-2 text-xs text-right tabular-nums">
         {p.priceCents > 0 ? fmtMoney(p.stockValue) : "—"}
       </td>

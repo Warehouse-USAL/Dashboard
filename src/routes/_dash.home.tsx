@@ -32,6 +32,8 @@ import {
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
 import { WarehouseMap } from "@/components/dashboard/WarehouseMap";
 import { alertTone, alerts, batteryTone, stateStyles, throughput } from "@/lib/dashboard-data";
+import { useQuery } from "@tanstack/react-query";
+import { getAllPositions } from "@/lib/api";
 import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
 import { useOrders } from "@/hooks/useOrders";
@@ -64,8 +66,21 @@ function HomePage() {
   const { data: rovers } = useVehicles();
   const { data: orders } = useOrders();
   const { data: products } = useProducts();
+  const { data: positions = [] } = useQuery({
+    queryKey: ["warehouse-positions"],
+    queryFn: getAllPositions,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+  });
   useVehicleWebSocket();
   const animatedRovers = useAnimatedRovers(rovers);
+
+  const ocupacionAlmacen = useMemo(() => {
+    const totalStock = positions.reduce((s, p) => s + p.current_stock, 0);
+    const totalCapacity = positions.reduce((s, p) => s + (p.maximum_capacity ?? 0), 0);
+    if (totalCapacity === 0) return "—";
+    return `${Math.round((totalStock / totalCapacity) * 100)}%`;
+  }, [positions]);
 
   const topSkus = useMemo(() => {
     const counts = new Map<string, number>();
@@ -130,7 +145,7 @@ function HomePage() {
         />
         <KpiCard
           label="Ocupación almacén"
-          value="—"
+          value={ocupacionAlmacen}
           icon={Warehouse}
           trend={`${products.length} SKUs activos`}
           accent="primary"
@@ -157,10 +172,10 @@ function HomePage() {
           accent="primary"
         />
         <KpiCard
-          label="Latido de flota"
+          label="T. Prom. Entre Fallas"
           value="—"
           icon={HeartPulse}
-          trend="MTBF · requiere Grafana"
+          trend="Sin datos disponibles"
           accent="destructive"
         />
       </section>
@@ -175,10 +190,10 @@ function HomePage() {
         >
           <WarehouseMap rovers={animatedRovers} />
           <div className="flex flex-wrap gap-3 mt-3 text-[11px]">
-            <LegendDot color="bg-primary" label="Activo" />
-            <LegendDot color="bg-warning" label="Cargando" />
-            <LegendDot color="bg-destructive" label="Detenido" />
-            <LegendDot color="bg-muted-foreground" label="Inactivo" />
+            <LegendDot color="bg-primary" label="busy" />
+            <LegendDot color="bg-warning" label="idle" />
+            <LegendDot color="bg-destructive" label="error" />
+            <LegendDot color="bg-muted-foreground" label="offline" />
           </div>
         </Panel>
 
@@ -236,7 +251,7 @@ function HomePage() {
                   <Truck className="w-4 h-4 text-muted-foreground" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold">{r.id}</span>
+                      <span className="text-xs font-bold">{r.name}</span>
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border ${stateStyles[r.state]}`}
                       >
@@ -408,7 +423,7 @@ function useAnimatedRovers(rovers: import("@/lib/dashboard-data").Rover[]) {
     rovers.forEach((r) => {
       seen.add(r.id);
       if (!m.has(r.id)) {
-        const moving = r.state === "activo";
+        const moving = r.state === "busy";
         // Snap Y to nearest aisle band center (32 or 60)
         const band = Math.abs(r.y - 32) < Math.abs(r.y - 60) ? 32 : 60;
         m.set(r.id, {
@@ -430,7 +445,7 @@ function useAnimatedRovers(rovers: import("@/lib/dashboard-data").Rover[]) {
       rovers.forEach((r) => {
         const s = m.get(r.id);
         if (!s) return;
-        if (r.state !== "activo") {
+        if (r.state !== "busy") {
           s.vx = 0;
           s.vy = 0;
           return;

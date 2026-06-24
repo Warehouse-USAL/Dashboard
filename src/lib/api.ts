@@ -101,25 +101,18 @@ export interface BackendVehicle {
   status: string;
   position: { x: number; y: number };
   battery: number;
-  currentOrderId: string | null;
-  lastSeenAt: string;
+  current_order_id: string | null;
+  last_seen_at: string;
 }
-
-const statusToState: Record<string, RoverState> = {
-  idle: "activo",
-  busy: "activo",
-  offline: "inactivo",
-  error: "detenido",
-};
 
 export function mapVehicle(v: BackendVehicle): Rover {
   return {
     id: v.id,
     name: v.name,
-    state: statusToState[v.status] ?? "inactivo",
+    state: (v.status as RoverState) ?? "offline",
     battery: v.battery,
     hours: 0,
-    order: v.currentOrderId ?? null,
+    order: v.current_order_id ?? null,
     zone: "—",
     x: v.position?.x ?? 50,
     y: v.position?.y ?? 50,
@@ -138,8 +131,8 @@ interface BackendOrder {
   id: string;
   status?: string;
   items?: BackendOrderItem[];
+  assigned_vehicle_id?: string | null;
   assignedVehicleId?: string | null;
-  // fallbacks por si el back cambia de nuevo
   product?: string;
   product_sku?: string;
   quantity?: number;
@@ -162,7 +155,7 @@ function mapOrder(o: BackendOrder): FrontendOrder {
   const product = o.product ?? firstItem?.sku ?? o.product_sku ?? "—";
   const qty = firstItem?.quantity ?? o.quantity ?? 1;
   const rawState = o.status ?? "pending";
-  const rover = o.assignedVehicleId ?? o.vehicle_id ?? o.rover ?? "—";
+  const rover = o.assigned_vehicle_id ?? o.assignedVehicleId ?? o.vehicle_id ?? o.rover ?? "—";
   return {
     id: o.id,
     product,
@@ -253,11 +246,18 @@ export async function getVehicles(): Promise<Rover[]> {
   }
 }
 
-export async function getOrders(status?: string, fromISO?: string): Promise<FrontendOrder[]> {
+export async function getOrders(
+  status?: string,
+  fromISO?: string,
+  size?: number,
+  vehicleId?: string,
+): Promise<FrontendOrder[]> {
   try {
     const params = new URLSearchParams();
     if (status) params.set("status", status);
     if (fromISO) params.set("from", fromISO);
+    if (size) params.set("size", size.toString());
+    if (vehicleId) params.set("vehicleId", vehicleId);
     const qs = params.toString();
     const path = qs ? `/orders?${qs}` : "/orders";
     const res = await apiFetch(path);

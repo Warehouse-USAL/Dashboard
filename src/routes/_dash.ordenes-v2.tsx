@@ -28,6 +28,8 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
+import { useQuery } from "@tanstack/react-query";
+import { getOrders } from "@/lib/api";
 import { useOrders } from "@/hooks/useOrders";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -37,6 +39,9 @@ export const Route = createFileRoute("/_dash/ordenes-v2")({
   component: OrdenesPage,
   head: () => ({ meta: [{ title: "Órdenes · SmartWarehouse" }] }),
 });
+
+/** SLA target: máximo tiempo permitido (minutos) desde creación hasta completado */
+const SLA_MINUTES = 5;
 
 const PERIOD_OPTIONS = [
   { id: "24h", label: "Últimas 24 horas" },
@@ -601,8 +606,57 @@ function OrdenesPage() {
     return "90d";
   }, [period, customRange]);
 
+  // ISO timestamp for 24 hours ago — stable for the session (memo with no deps)
+  const from24hISO = useMemo(() => {
+    const d = new Date();
+    d.setHours(d.getHours() - 24);
+    return d.toISOString();
+  }, []);
+
+  const { data: completed24h = [] } = useQuery({
+    queryKey: ["orders-completed-24h", from24hISO],
+    queryFn: () => getOrders("completed", from24hISO, 50),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const ordHora = useMemo(() => +(completed24h.length / 24).toFixed(2), [completed24h]);
+
+  const cycleTimeMin = useMemo(() => {
+    const withTs = completed24h.filter((o) => o.createdAt && o.completedAt);
+    if (!withTs.length) return null;
+    const avgMs =
+      withTs.reduce(
+        (s, o) => s + (new Date(o.completedAt!).getTime() - new Date(o.createdAt!).getTime()),
+        0,
+      ) / withTs.length;
+    return +(avgMs / 60_000).toFixed(1);
+  }, [completed24h]);
+
+  const agingBuckets = useMemo(() => {
+    const now = Date.now();
+    const active = orders.filter(
+      (o) => (o.state === "pending" || o.state === "in_progress") && o.createdAt,
+    );
+    const counts = [0, 0, 0, 0, 0];
+    active.forEach((o) => {
+      const m = (now - new Date(o.createdAt!).getTime()) / 60_000;
+      if (m < 5) counts[0]++;
+      else if (m < 15) counts[1]++;
+      else if (m < 30) counts[2]++;
+      else if (m < 60) counts[3]++;
+      else counts[4]++;
+    });
+    return [
+      { bucket: "< 5 min", value: counts[0], tone: "bg-emerald-500" },
+      { bucket: "5 - 15 min", value: counts[1], tone: "bg-emerald-500" },
+      { bucket: "15 - 30 min", value: counts[2], tone: "bg-amber-400" },
+      { bucket: "30 - 60 min", value: counts[3], tone: "bg-amber-500" },
+      { bucket: "> 60 min", value: counts[4], tone: "bg-rose-500" },
+    ];
+  }, [orders]);
+
   const kpis = { ...KPIS_BY_PERIOD[dataPeriod], total: orders.length };
-  const aging = AGING_BY_PERIOD[dataPeriod];
   const reintentos = REINTENTOS_BY_PERIOD[dataPeriod];
   const horas = HORAS_BY_PERIOD[dataPeriod];
 
@@ -623,9 +677,19 @@ function OrdenesPage() {
     key: k,
     value: distribucion[k],
   }));
-  const agingMax = Math.max(...aging.map((a) => a.value));
+  // SLA compliance: % of completed-24h orders finished within SLA_MINUTES
+  const slaPct = useMemo(() => {
+    const withTs = completed24h.filter((o) => o.createdAt && o.completedAt);
+    if (!withTs.length) return null;
+    const withinSla = withTs.filter(
+      (o) =>
+        new Date(o.completedAt!).getTime() - new Date(o.createdAt!).getTime() <=
+        SLA_MINUTES * 60_000,
+    );
+    return Math.round((withinSla.length / withTs.length) * 100);
+  }, [completed24h]);
 
-  // Real cumplimiento from API
+  // Real cumplimiento from API (completadas vs canceladas) — used in the panel below
   const cumplimiento = useMemo(() => {
     const comp = orders.filter((o) => o.state === "completed").length;
     const canc = orders.filter((o) => o.state === "cancelled").length;
@@ -713,27 +777,27 @@ function OrdenesPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
           icon={Gauge}
-          label="Órdenes / hora"
-          value={kpis.ordHora.toString()}
-          sub={`${kpis.ordHoraDelta >= 0 ? "+" : ""}${kpis.ordHoraDelta}% vs ayer`}
+          label="Completadas / hora"
+          value={ordHora.toFixed(2)}
+          sub="Últimas 24 horas"
           tone="primary"
-          positive={kpis.ordHoraDelta >= 0}
+          neutral
         />
         <KpiCard
           icon={Timer}
           label="Cycle time prom."
-          value={`${kpis.cycle} min`}
-          sub={`${kpis.cycleDelta >= 0 ? "+" : ""}${kpis.cycleDelta} min vs ayer`}
+          value={cycleTimeMin !== null ? `${cycleTimeMin} min` : "—"}
+          sub="Últimas 24 horas"
           tone="warning"
-          positive={kpis.cycleDelta <= 0}
+          neutral
         />
         <KpiCard
           icon={ShieldCheck}
           label="SLA compliance"
-          value={`${kpis.sla}%`}
-          sub={`${kpis.slaDelta >= 0 ? "+" : ""}${kpis.slaDelta}% vs ayer`}
+          value={slaPct !== null ? `${slaPct}%` : "—"}
+          sub={`Completadas en ≤${SLA_MINUTES} min · 24h`}
           tone="success"
-          positive={kpis.slaDelta >= 0}
+          neutral
         />
         <KpiCard
           icon={ListChecks}
@@ -741,7 +805,7 @@ function OrdenesPage() {
           value={kpis.total.toLocaleString("es-AR")}
           sub="Total en el período"
           tone="info"
-          positive
+          neutral
         />
       </div>
 
@@ -795,35 +859,32 @@ function OrdenesPage() {
 
         <Panel
           title="Aging de órdenes"
-          action={<span className="text-[11px] text-muted-foreground">(espera)</span>}
+          action={<span className="text-[11px] text-muted-foreground">Pending · In progress</span>}
         >
           <div className="space-y-2.5 mt-1">
-            {aging.map((a) => (
-              <div key={a.bucket} className="flex items-center gap-3 text-[11px]">
-                <span className="w-20 text-muted-foreground">{a.bucket}</span>
-                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={`h-full ${a.tone}`}
-                    style={{ width: `${agingMax ? (a.value / agingMax) * 100 : 0}%` }}
-                  />
+            {agingBuckets.map((a) => {
+              const agingMax = Math.max(...agingBuckets.map((b) => b.value));
+              return (
+                <div key={a.bucket} className="flex items-center gap-3 text-[11px]">
+                  <span className="w-20 text-muted-foreground">{a.bucket}</span>
+                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${a.tone}`}
+                      style={{ width: `${agingMax ? (a.value / agingMax) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <span className="w-8 text-right tabular-nums">{a.value}</span>
                 </div>
-                <span className="w-8 text-right tabular-nums">{a.value}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Panel>
 
         <Panel className="self-start" title="Tasa de cumplimiento">
           <div className="flex flex-col items-center justify-center py-4">
             <span className="text-3xl font-bold">{cumplimiento.pct}%</span>
-            <span
-              className={cn(
-                "text-[11px] mt-1",
-                cumplimiento.delta >= 0 ? "text-emerald-500" : "text-destructive",
-              )}
-            >
-              {cumplimiento.delta >= 0 ? "+" : ""}
-              {cumplimiento.delta}% vs ayer
+            <span className="text-[11px] mt-1 text-muted-foreground">
+              Completadas vs canceladas
             </span>
           </div>
         </Panel>
@@ -1135,13 +1196,15 @@ function KpiCard({
   sub,
   tone,
   positive,
+  neutral,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   sub: string;
   tone: string;
-  positive: boolean;
+  positive?: boolean;
+  neutral?: boolean;
 }) {
   const toneCls: Record<string, string> = {
     primary: "text-primary bg-primary/10",
@@ -1160,7 +1223,12 @@ function KpiCard({
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       </div>
       <p className="text-2xl font-bold">{value}</p>
-      <p className={cn("text-[10px] mt-1", positive ? "text-emerald-500" : "text-destructive")}>
+      <p
+        className={cn(
+          "text-[10px] mt-1",
+          neutral ? "text-muted-foreground" : positive ? "text-emerald-500" : "text-destructive",
+        )}
+      >
         {sub}
       </p>
     </div>
