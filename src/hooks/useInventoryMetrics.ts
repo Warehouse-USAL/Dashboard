@@ -1,8 +1,10 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { DateRange } from "react-day-picker";
 import { getAllPositions, getOrders, getProducts } from "@/lib/api";
 import { stock as mockStock } from "@/lib/dashboard-data";
 import type { FrontendProduct } from "@/lib/api";
+import { periodToBounds, withinBounds, type PeriodId } from "@/lib/dateRange";
 
 export type InvStatus = "disponible" | "riesgo" | "quiebre" | "dead";
 
@@ -46,12 +48,13 @@ const MOCK_PRODUCTS_INIT: FrontendProduct[] = mockStock.map((s) => ({
   status: s.status as FrontendProduct["status"],
 }));
 
-export function useInventoryMetrics() {
-  const from30d = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString();
-  }, []);
+/**
+ * @param period Selected date-range filter (defaults to "30d" for callers that
+ *   don't expose a picker). Drives the demand/coverage window below — NOT a
+ *   display-only label like it used to be.
+ */
+export function useInventoryMetrics(period: PeriodId = "30d", customRange?: DateRange) {
+  const bounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
 
   const { data: products = MOCK_PRODUCTS_INIT } = useQuery({
     queryKey: ["products"],
@@ -60,11 +63,19 @@ export function useInventoryMetrics() {
     initialData: MOCK_PRODUCTS_INIT,
   });
 
-  const { data: completedOrders = [] } = useQuery({
-    queryKey: ["orders-completed", from30d],
-    queryFn: () => getOrders("completed", from30d),
+  // Fetch broadly (all completed orders, uncapped by date) and bound by período
+  // client-side below — consistent with how Órdenes/Vehículos do it, and avoids
+  // needing a "to" bound in the API layer for custom ranges.
+  const { data: completedOrdersRaw = [] } = useQuery({
+    queryKey: ["orders-completed"],
+    queryFn: () => getOrders("completed"),
     refetchInterval: 60_000,
   });
+
+  const completedOrders = useMemo(
+    () => completedOrdersRaw.filter((o) => withinBounds(o.completedAt ?? o.createdAt, bounds)),
+    [completedOrdersRaw, bounds],
+  );
 
   const { data: positions = [] } = useQuery({
     queryKey: ["warehouse-positions"],

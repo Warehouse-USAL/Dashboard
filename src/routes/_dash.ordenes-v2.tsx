@@ -33,6 +33,7 @@ import { getOrders } from "@/lib/api";
 import { useOrders } from "@/hooks/useOrders";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
+import { periodToBounds, withinBounds } from "@/lib/dateRange";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -590,6 +591,14 @@ function OrdenesPage() {
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
+  // Real date-range filter — bounds the actual orders list (table + real panels
+  // below), not just the synthetic histórico/KPI datasets keyed by período.
+  const dateBounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+  const dateFilteredOrders = useMemo(
+    () => orders.filter((o) => withinBounds(o.createdAt, dateBounds)),
+    [orders, dateBounds],
+  );
+
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -635,6 +644,8 @@ function OrdenesPage() {
     return +(avgMs / 60_000).toFixed(1);
   }, [completed24h]);
 
+  // Aging is a live snapshot of what's currently open — intentionally NOT
+  // date-filtered (an order stuck since last week should still show up here).
   const agingBuckets = useMemo(() => {
     const now = Date.now();
     const active = orders.filter(
@@ -658,19 +669,19 @@ function OrdenesPage() {
     ];
   }, [orders]);
 
-  const kpis = { ...KPIS_BY_PERIOD[dataPeriod], total: orders.length };
+  const kpis = { ...KPIS_BY_PERIOD[dataPeriod], total: dateFilteredOrders.length };
   const reintentos = REINTENTOS_BY_PERIOD[dataPeriod];
   const horas = HORAS_BY_PERIOD[dataPeriod];
 
-  // Real distribution from API
+  // Real distribution from API, bounded by the selected período
   const distribucion: Record<OrderState, number> = useMemo(
     () => ({
-      pending: orders.filter((o) => o.state === "pending").length,
-      in_progress: orders.filter((o) => o.state === "in_progress").length,
-      completed: orders.filter((o) => o.state === "completed").length,
-      cancelled: orders.filter((o) => o.state === "cancelled").length,
+      pending: dateFilteredOrders.filter((o) => o.state === "pending").length,
+      in_progress: dateFilteredOrders.filter((o) => o.state === "in_progress").length,
+      completed: dateFilteredOrders.filter((o) => o.state === "completed").length,
+      cancelled: dateFilteredOrders.filter((o) => o.state === "cancelled").length,
     }),
-    [orders],
+    [dateFilteredOrders],
   );
 
   const distTotal = (Object.values(distribucion) as number[]).reduce((a, b) => a + b, 0);
@@ -691,25 +702,26 @@ function OrdenesPage() {
     return Math.round((withinSla.length / withTs.length) * 100);
   }, [completed24h]);
 
-  // Real cumplimiento from API (completadas vs canceladas) — used in the panel below
+  // Real cumplimiento from API (completadas vs canceladas), bounded by período
   const cumplimiento = useMemo(() => {
-    const comp = orders.filter((o) => o.state === "completed").length;
-    const canc = orders.filter((o) => o.state === "cancelled").length;
+    const comp = dateFilteredOrders.filter((o) => o.state === "completed").length;
+    const canc = dateFilteredOrders.filter((o) => o.state === "cancelled").length;
     return {
       pct: comp + canc > 0 ? Math.round((comp / (comp + canc)) * 100) : 100,
       delta: 0,
     };
-  }, [orders]);
+  }, [dateFilteredOrders]);
 
-  // Real priority distribution from API
+  // Real priority distribution from API, bounded by período
   const prioridad = useMemo(
     () => ({
-      alta: orders.filter((o) => o.priority?.toLowerCase() === "alta").length,
-      media: orders.filter((o) => !["alta", "baja"].includes(o.priority?.toLowerCase() ?? ""))
-        .length,
-      baja: orders.filter((o) => o.priority?.toLowerCase() === "baja").length,
+      alta: dateFilteredOrders.filter((o) => o.priority?.toLowerCase() === "alta").length,
+      media: dateFilteredOrders.filter(
+        (o) => !["alta", "baja"].includes(o.priority?.toLowerCase() ?? ""),
+      ).length,
+      baja: dateFilteredOrders.filter((o) => o.priority?.toLowerCase() === "baja").length,
     }),
-    [orders],
+    [dateFilteredOrders],
   );
 
   const prioTotal = prioridad.alta + prioridad.media + prioridad.baja;
@@ -721,7 +733,7 @@ function OrdenesPage() {
 
   const filteredTable = useMemo(
     () =>
-      orders.filter((o) => {
+      dateFilteredOrders.filter((o) => {
         if (tableTab !== "todas" && o.state !== tableTab) return false;
         if (!priorityFilter.has(o.priority as Priority)) return false;
         if (!stateFilter.has(o.state as OrderState)) return false;
@@ -729,7 +741,7 @@ function OrdenesPage() {
           return false;
         return true;
       }),
-    [orders, tableTab, priorityFilter, stateFilter, q],
+    [dateFilteredOrders, tableTab, priorityFilter, stateFilter, q],
   );
 
   const {
@@ -742,30 +754,17 @@ function OrdenesPage() {
     total: ordersTotal,
   } = usePagedList(filteredTable, 10);
 
-  const histBounds = useMemo<{ from?: number; to?: number }>(() => {
-    if (period === "custom") {
-      return {
-        from: customRange?.from?.getTime(),
-        to: customRange?.to ? customRange.to.getTime() + 86_400_000 : undefined,
-      };
-    }
-    const now = Date.now();
-    const days = period === "24h" ? 1 : period === "7d" ? 7 : period === "30d" ? 30 : 90;
-    return { from: now - days * 86_400_000, to: now };
-  }, [period, customRange]);
-
   const filteredHist = useMemo(() => {
     const now = Date.now();
     return HISTORICO.map((h) => ({ ...h, t: now - h.offsetH * 3_600_000 }))
       .filter((h) => {
         if (!priorityFilter.has(h.priority)) return false;
         if (!stateFilter.has(h.state)) return false;
-        if (histBounds.from !== undefined && h.t < histBounds.from) return false;
-        if (histBounds.to !== undefined && h.t > histBounds.to) return false;
+        if (h.t < dateBounds.from || h.t > dateBounds.to) return false;
         return true;
       })
       .map((h) => ({ ...h, fecha: format(new Date(h.t), "dd/MM/yyyy HH:mm") }));
-  }, [priorityFilter, stateFilter, histBounds]);
+  }, [priorityFilter, stateFilter, dateBounds]);
 
   return (
     <div className="space-y-5">

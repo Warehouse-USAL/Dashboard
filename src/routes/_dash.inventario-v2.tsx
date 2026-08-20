@@ -191,8 +191,6 @@ function periodLabel(value: PeriodId, range?: DateRange): string {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 function InventarioPage() {
-  const { products, kpis, zoneOccupancy } = useInventoryMetrics();
-
   const [zoneFilter, setZoneFilter] = useState<Set<Zone>>(new Set(ZONES));
   const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(
     new Set(["disponible", "riesgo", "quiebre", "dead"] as InvStatus[]),
@@ -203,6 +201,11 @@ function InventarioPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [period, setPeriod] = useState<PeriodId>("7d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
+
+  // period/customRange now genuinely drive the demand window behind
+  // dailyDemand/coverageDays/invStatus/Top rotación — not just the mock
+  // "Movimientos" panel below.
+  const { products, kpis, zoneOccupancy } = useInventoryMetrics(period, customRange);
 
   const dataPeriod: DataPeriodId = useMemo(() => {
     if (period !== "custom") return period;
@@ -350,7 +353,13 @@ function InventarioPage() {
             Estado actual del stock · actualización cada 10s
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <PeriodPicker
+            value={period}
+            onChange={setPeriod}
+            range={customRange}
+            onRangeChange={setCustomRange}
+          />
           <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-secondary/40">
             <Download className="w-3.5 h-3.5" /> Exportar
           </button>
@@ -595,14 +604,7 @@ function InventarioPage() {
       <Panel
         title="Movimientos de stock"
         subtitle="Entradas vs salidas · datos sintéticos"
-        action={
-          <PeriodPicker
-            value={period}
-            onChange={setPeriod}
-            range={customRange}
-            onRangeChange={setCustomRange}
-          />
-        }
+        action={<PeriodLabelView value={period} range={customRange} />}
       >
         <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -1008,6 +1010,15 @@ function CheckRow({ on, label, onClick }: { on: boolean; label: string; onClick:
       </span>
       {label}
     </button>
+  );
+}
+
+function PeriodLabelView({ value, range }: { value: PeriodId; range?: DateRange }) {
+  return (
+    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <CalendarIcon className="w-3 h-3" />
+      {periodLabel(value, range)}
+    </span>
   );
 }
 
