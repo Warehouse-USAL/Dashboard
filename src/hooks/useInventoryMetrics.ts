@@ -55,7 +55,7 @@ export function useInventoryMetrics() {
 
   const { data: products = MOCK_PRODUCTS_INIT } = useQuery({
     queryKey: ["products"],
-    queryFn: getProducts,
+    queryFn: () => getProducts(),
     refetchInterval: 10_000,
     initialData: MOCK_PRODUCTS_INIT,
   });

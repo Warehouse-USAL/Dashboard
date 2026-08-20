@@ -249,7 +249,12 @@ export async function getVehicles(): Promise<Rover[]> {
 export async function getOrders(
   status?: string,
   fromISO?: string,
-  size?: number,
+  // Defaults to the backend's hard cap (50) instead of its own default page
+  // size (10) — callers that don't pass `size` want "everything currently
+  // available", not silently just the first 10. See getProducts() below for
+  // the same fix. If the dataset ever needs more than 50 rows, this needs
+  // real server-side pagination (page cursor), not just a bigger cap.
+  size: number = 50,
   vehicleId?: string,
 ): Promise<FrontendOrder[]> {
   try {
@@ -271,9 +276,13 @@ export async function getOrders(
   }
 }
 
-export async function getProducts(): Promise<FrontendProduct[]> {
+// Same rationale as getOrders() above: request the backend's hard cap (50)
+// by default instead of its default page size (10).
+export async function getProducts(size: number = 50): Promise<FrontendProduct[]> {
   try {
-    const res = await apiFetch("/products");
+    const params = new URLSearchParams();
+    if (size) params.set("size", size.toString());
+    const res = await apiFetch(`/products?${params.toString()}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
     const list = (
