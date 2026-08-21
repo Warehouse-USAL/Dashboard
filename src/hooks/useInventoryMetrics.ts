@@ -72,6 +72,8 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
     refetchInterval: 60_000,
   });
 
+  // Bounded by período — this is what "demanda diaria"/"cobertura" should
+  // reflect, since that's literally what the picker is for.
   const completedOrders = useMemo(
     () => completedOrdersRaw.filter((o) => withinBounds(o.completedAt ?? o.createdAt, bounds)),
     [completedOrdersRaw, bounds],
@@ -88,29 +90,29 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
     const now = Date.now();
     const sevenDaysMs = 7 * 86_400_000;
 
-    // Aggregate demand and last order date per SKU from completed orders (last 30d)
-    const skuMap = new Map<
-      string,
-      { totalQty: number; lastDate: string | null; orderDays: Set<string> }
-    >();
-
+    // Demand per SKU, bounded by the selected período — drives dailyDemand/coverageDays.
+    const demandMap = new Map<string, { totalQty: number; orderDays: Set<string> }>();
     completedOrders.forEach((order) => {
       const sku = order.product;
       if (!sku || sku === "—") return;
-      const entry = skuMap.get(sku) ?? {
-        totalQty: 0,
-        lastDate: null,
-        orderDays: new Set<string>(),
-      };
+      const entry = demandMap.get(sku) ?? { totalQty: 0, orderDays: new Set<string>() };
       entry.totalQty += order.qty;
       // Track unique calendar days with orders to compute demand per active day
       const dayStr = (order.completedAt ?? order.createdAt ?? "").split("T")[0];
       if (dayStr) entry.orderDays.add(dayStr);
-      if (order.completedAt) {
-        if (!entry.lastDate || order.completedAt > entry.lastDate)
-          entry.lastDate = order.completedAt;
-      }
-      skuMap.set(sku, entry);
+      demandMap.set(sku, entry);
+    });
+
+    // Last-order date per SKU, from the FULL order history — NOT bounded by
+    // período. "¿Cuándo se pidió por última vez?" is an absolute fact and must
+    // not flip a SKU to "dead stock" just because the user narrowed the
+    // demand-window picker to 24h (see #46 follow-up).
+    const lastOrderMap = new Map<string, string>();
+    completedOrdersRaw.forEach((order) => {
+      const sku = order.product;
+      if (!sku || sku === "—" || !order.completedAt) return;
+      const current = lastOrderMap.get(sku);
+      if (!current || order.completedAt > current) lastOrderMap.set(sku, order.completedAt);
     });
 
     // First position with current_stock > 0 per product_id
@@ -130,12 +132,14 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
     });
 
     const enriched: EnrichedProduct[] = products.map((p) => {
-      const info = skuMap.get(p.sku);
-      const dailyDemand = info ? info.totalQty / Math.max(info.orderDays.size, 1) : 0;
+      const demandInfo = demandMap.get(p.sku);
+      const dailyDemand = demandInfo
+        ? demandInfo.totalQty / Math.max(demandInfo.orderDays.size, 1)
+        : 0;
       const coverageDays = dailyDemand > 0 ? p.available / dailyDemand : p.available > 0 ? 9999 : 0;
       const stockValue = (p.available * p.priceCents) / 100;
       const reqNeto = Math.max(0, p.minimum - p.available);
-      const lastOrderDate = info?.lastDate ?? null;
+      const lastOrderDate = lastOrderMap.get(p.sku) ?? null;
       const lastOrderTs = lastOrderDate ? new Date(lastOrderDate).getTime() : 0;
       const lastOrderDaysAgo = lastOrderDate ? (now - lastOrderTs) / 86_400_000 : null;
 
@@ -212,5 +216,5 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
       .map(([zone, { stock, capacity }]) => ({ zone, stock, capacity }));
 
     return { products: enriched, kpis, zoneOccupancy };
-  }, [products, completedOrders, positions]);
+  }, [products, completedOrders, completedOrdersRaw, positions]);
 }
