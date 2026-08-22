@@ -5,7 +5,7 @@ import { initialRovers } from "@/lib/dashboard-data";
 export function useVehicles() {
   return useQuery({
     queryKey: ["vehicles"],
-    queryFn: getVehicles,
+    queryFn: () => getVehicles(),
     refetchInterval: 10_000,
     initialData: initialRovers.map((r) => ({ ...r })),
   });

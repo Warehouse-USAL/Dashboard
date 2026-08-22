@@ -29,6 +29,8 @@ import {
 } from "recharts";
 import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
+import { usePagedList } from "@/hooks/usePagination";
+import { TablePagination } from "@/components/dashboard/TablePagination";
 import type { Rover, RoverState } from "@/lib/dashboard-data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -351,6 +353,16 @@ function RoversPage() {
     [rovers, stateFilter],
   );
 
+  const {
+    page: roversPage,
+    setPage: setRoversPage,
+    totalPages: roversTotalPages,
+    pageItems: pagedRovers,
+    from: roversFrom,
+    to: roversTo,
+    total: roversFilteredTotal,
+  } = usePagedList(filteredRovers, 10);
+
   const totalRovers = rovers.length;
   const activos = rovers.filter((r) => r.state === "busy").length;
   const cargando = rovers.filter((r) => r.state === "idle").length;
@@ -446,7 +458,7 @@ function RoversPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRovers.map((r) => (
+              {pagedRovers.map((r) => (
                 <RoverRow key={r.id} r={r} />
               ))}
               {filteredRovers.length === 0 && (
@@ -459,6 +471,15 @@ function RoversPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={roversPage}
+          totalPages={roversTotalPages}
+          onPageChange={setRoversPage}
+          from={roversFrom}
+          to={roversTo}
+          total={roversFilteredTotal}
+          itemLabel="rovers"
+        />
         <div className="flex flex-wrap gap-4 mt-4 text-[11px] text-muted-foreground">
           <LegendDot color="bg-primary" label="busy" />
           <LegendDot color="bg-warning" label="idle" />
@@ -914,6 +935,16 @@ function ProductividadPorRover({
     [rovers, ordersByVehicle],
   );
 
+  const {
+    page: prodPage,
+    setPage: setProdPage,
+    totalPages: prodTotalPages,
+    pageItems: pagedRows,
+    from: prodFrom,
+    to: prodTo,
+    total: prodTotal,
+  } = usePagedList(rows, 10);
+
   const maxOrdenes = Math.max(1, ...rows.map((r) => r.ordenes));
   const efColor = (e: number) =>
     e >= 85 ? "bg-primary" : e >= 65 ? "bg-warning" : "bg-destructive";
@@ -933,7 +964,7 @@ function ProductividadPorRover({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {pagedRows.map((r) => (
               <tr key={r.id} className="border-b border-border/50 hover:bg-secondary/30">
                 <td className="py-3 px-2 text-xs font-bold">
                   <span className="flex items-center gap-2">
@@ -970,6 +1001,15 @@ function ProductividadPorRover({
           </tbody>
         </table>
       </div>
+      <TablePagination
+        page={prodPage}
+        totalPages={prodTotalPages}
+        onPageChange={setProdPage}
+        from={prodFrom}
+        to={prodTo}
+        total={prodTotal}
+        itemLabel="rovers"
+      />
       <p className="text-[10px] text-muted-foreground mt-3">
         Eficiencia = % de órdenes cumplidas exitosamente sobre asignadas en el período.
       </p>

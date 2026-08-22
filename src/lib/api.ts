@@ -231,9 +231,13 @@ function mapProduct(p: BackendProduct): FrontendProduct {
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
-export async function getVehicles(): Promise<Rover[]> {
+// Same rationale as getOrders()/getProducts(): request the backend's hard cap
+// (50) by default instead of its default page size (10).
+export async function getVehicles(size: number = 50): Promise<Rover[]> {
   try {
-    const res = await apiFetch("/vehicles");
+    const params = new URLSearchParams();
+    if (size) params.set("size", size.toString());
+    const res = await apiFetch(`/vehicles?${params.toString()}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
     const data = (
