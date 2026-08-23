@@ -36,6 +36,8 @@ import {
   type InvStatus,
   type EnrichedProduct,
 } from "@/hooks/useInventoryMetrics";
+import { usePagedList } from "@/hooks/usePagination";
+import { TablePagination } from "@/components/dashboard/TablePagination";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -298,6 +300,16 @@ function InventarioPage() {
     return list;
   }, [products, tableTab, statusFilter, zoneFilter, q, sortKey, sortDir]);
 
+  const {
+    page: productsPage,
+    setPage: setProductsPage,
+    totalPages: productsTotalPages,
+    pageItems: pagedProducts,
+    from: productsFrom,
+    to: productsTo,
+    total: productsTotal,
+  } = usePagedList(filteredTable, 10);
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
@@ -452,7 +464,7 @@ function InventarioPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredTable.map((p) => (
+              {pagedProducts.map((p) => (
                 <ProductRow key={p.sku} p={p} />
               ))}
               {filteredTable.length === 0 && (
@@ -465,6 +477,15 @@ function InventarioPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={productsPage}
+          totalPages={productsTotalPages}
+          onPageChange={setProductsPage}
+          from={productsFrom}
+          to={productsTo}
+          total={productsTotal}
+          itemLabel="productos"
+        />
       </Panel>
 
       {/* ── Row 2: Distribution + Occupancy + Top Rotación ── */}

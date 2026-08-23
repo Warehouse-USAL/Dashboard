@@ -31,6 +31,8 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { getOrders } from "@/lib/api";
 import { useOrders } from "@/hooks/useOrders";
+import { usePagedList } from "@/hooks/usePagination";
+import { TablePagination } from "@/components/dashboard/TablePagination";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -730,6 +732,16 @@ function OrdenesPage() {
     [orders, tableTab, priorityFilter, stateFilter, q],
   );
 
+  const {
+    page: ordersPage,
+    setPage: setOrdersPage,
+    totalPages: ordersTotalPages,
+    pageItems: pagedTable,
+    from: ordersFrom,
+    to: ordersTo,
+    total: ordersTotal,
+  } = usePagedList(filteredTable, 10);
+
   const histBounds = useMemo<{ from?: number; to?: number }>(() => {
     if (period === "custom") {
       return {
@@ -924,7 +936,7 @@ function OrdenesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredTable.map((o) => {
+                {pagedTable.map((o) => {
                   const { items, total, multi } = getOrderItems(o);
                   const isOpen = expanded.has(o.id);
                   return (
@@ -1004,6 +1016,15 @@ function OrdenesPage() {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={ordersPage}
+            totalPages={ordersTotalPages}
+            onPageChange={setOrdersPage}
+            from={ordersFrom}
+            to={ordersTo}
+            total={ordersTotal}
+            itemLabel="órdenes"
+          />
         </Panel>
 
         <Panel

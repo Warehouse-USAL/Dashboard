@@ -18,7 +18,7 @@ const INITIAL_PRODUCTS: FrontendProduct[] = mockStock.map((s) => ({
 export function useProducts() {
   return useQuery({
     queryKey: ["products"],
-    queryFn: getProducts,
+    queryFn: () => getProducts(),
     refetchInterval: 10_000,
     initialData: INITIAL_PRODUCTS,
   });
