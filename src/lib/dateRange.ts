@@ -30,7 +30,10 @@ export function periodToBounds(period: PeriodId, custom?: DateRange): { from: nu
 }
 
 /** True if the ISO timestamp falls within [from, to]. False for missing/unparseable dates. */
-export function withinBounds(iso: string | undefined, bounds: { from: number; to: number }): boolean {
+export function withinBounds(
+  iso: string | undefined,
+  bounds: { from: number; to: number },
+): boolean {
   if (!iso) return false;
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return false;
