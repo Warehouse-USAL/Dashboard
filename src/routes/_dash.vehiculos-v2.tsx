@@ -31,6 +31,7 @@ import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
+import { periodToBounds, withinBounds } from "@/lib/dateRange";
 import type { Rover, RoverState } from "@/lib/dashboard-data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -902,26 +903,30 @@ function ProductividadPorRover({
   period: PeriodId;
   range?: DateRange;
 }) {
-  const from24h = useMemo(() => {
-    const d = new Date();
-    d.setHours(d.getHours() - 24);
-    return d.toISOString();
-  }, []);
-
-  const { data: completed24h = [] } = useQuery({
-    queryKey: ["orders-completed-24h-prod", from24h],
-    queryFn: () => getOrders("completed", from24h, 50),
+  // Fetch broadly (all completed orders) and bound by the selected período
+  // client-side below — the label next to this panel used to claim it showed
+  // the selected period while the query was hardcoded to a fixed last-24h
+  // window regardless of what the user picked.
+  const { data: completedRaw = [] } = useQuery({
+    queryKey: ["orders-completed-prod"],
+    queryFn: () => getOrders("completed"),
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
 
+  const bounds = useMemo(() => periodToBounds(period, range), [period, range]);
+  const completedInRange = useMemo(
+    () => completedRaw.filter((o) => withinBounds(o.completedAt ?? o.createdAt, bounds)),
+    [completedRaw, bounds],
+  );
+
   const ordersByVehicle = useMemo(() => {
     const map = new Map<string, number>();
-    completed24h.forEach((o) => {
+    completedInRange.forEach((o) => {
       if (o.rover && o.rover !== "—") map.set(o.rover, (map.get(o.rover) ?? 0) + 1);
     });
     return map;
-  }, [completed24h]);
+  }, [completedInRange]);
 
   const rows = useMemo(
     () =>

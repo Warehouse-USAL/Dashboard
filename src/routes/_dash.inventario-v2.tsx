@@ -191,8 +191,6 @@ function periodLabel(value: PeriodId, range?: DateRange): string {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 function InventarioPage() {
-  const { products, kpis, zoneOccupancy } = useInventoryMetrics();
-
   const [zoneFilter, setZoneFilter] = useState<Set<Zone>>(new Set(ZONES));
   const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(
     new Set(["disponible", "riesgo", "quiebre", "dead"] as InvStatus[]),
@@ -203,6 +201,16 @@ function InventarioPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [period, setPeriod] = useState<PeriodId>("7d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
+
+  // period/customRange drive dailyDemand/coverageDays on the table + "Top
+  // rotación" (exploratory) and the mock "Movimientos" panel below. They do
+  // NOT drive invStatus (riesgo/quiebre/dead) or the risk KPIs — those use
+  // the separate, fixed riskWindowDays (Configuración › Umbrales operativos)
+  // so a short período pick can't flap the risk alerts. See useInventoryMetrics.
+  const { products, kpis, zoneOccupancy, riskWindowDays } = useInventoryMetrics(
+    period,
+    customRange,
+  );
 
   const dataPeriod: DataPeriodId = useMemo(() => {
     if (period !== "custom") return period;
@@ -350,7 +358,13 @@ function InventarioPage() {
             Estado actual del stock · actualización cada 10s
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <PeriodPicker
+            value={period}
+            onChange={setPeriod}
+            range={customRange}
+            onRangeChange={setCustomRange}
+          />
           <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-secondary/40">
             <Download className="w-3.5 h-3.5" /> Exportar
           </button>
@@ -373,7 +387,7 @@ function InventarioPage() {
           icon={AlertTriangle}
           label="SKUs en riesgo"
           value={kpis.skusAtRisk.toString()}
-          sub="cobertura < 5 días"
+          sub={`cobertura < 5 días (${riskWindowDays}d)`}
           tone="warning"
         />
         <KpiCard
@@ -387,14 +401,14 @@ function InventarioPage() {
           icon={Clock}
           label="Cobertura promedio"
           value={`${kpis.avgCoverage.toFixed(1)}d`}
-          sub="días de stock restante"
+          sub={`días de stock restante (${riskWindowDays}d)`}
           tone="info"
         />
         <KpiCard
           icon={TrendingDown}
           label="Dead stock (valor)"
           value={fmtMoney(kpis.deadStockValue)}
-          sub="sin órdenes en 7 días"
+          sub={`sin órdenes en ${riskWindowDays} días`}
           tone="muted"
         />
       </div>
@@ -443,10 +457,23 @@ function InventarioPage() {
                 <SortTh k="available" active={sortKey} dir={sortDir} onSort={toggleSort} right>
                   Disponible
                 </SortTh>
-                <SortTh k="dailyDemand" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                <SortTh
+                  k="dailyDemand"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  right
+                  title={`Calculado sobre el período seleccionado arriba (${periodLabel(period, customRange)})`}
+                >
                   Dem. diaria
                 </SortTh>
-                <SortTh k="coverageDays" active={sortKey} dir={sortDir} onSort={toggleSort}>
+                <SortTh
+                  k="coverageDays"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  title={`Calculado sobre el período seleccionado arriba (${periodLabel(period, customRange)})`}
+                >
                   Cobertura
                 </SortTh>
                 <SortTh k="reqNeto" active={sortKey} dir={sortDir} onSort={toggleSort} right>
@@ -458,7 +485,13 @@ function InventarioPage() {
                 <SortTh k="lastOrderDaysAgo" active={sortKey} dir={sortDir} onSort={toggleSort}>
                   Última orden
                 </SortTh>
-                <SortTh k="invStatus" active={sortKey} dir={sortDir} onSort={toggleSort}>
+                <SortTh
+                  k="invStatus"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  title={`Calculado sobre la ventana de riesgo configurada (${riskWindowDays}d), no sobre el período de arriba`}
+                >
                   Estado
                 </SortTh>
               </tr>
@@ -562,7 +595,10 @@ function InventarioPage() {
         </Panel>
 
         {/* Top rotación */}
-        <Panel title="Top rotación" subtitle="Mayor demanda diaria (30d)">
+        <Panel
+          title="Top rotación"
+          subtitle={`Mayor demanda diaria · ${periodLabel(period, customRange)}`}
+        >
           <div className="space-y-2">
             {topRotacion.map((p, i) => {
               const max = topRotacion[0]?.dailyDemand || 1;
@@ -595,14 +631,7 @@ function InventarioPage() {
       <Panel
         title="Movimientos de stock"
         subtitle="Entradas vs salidas · datos sintéticos"
-        action={
-          <PeriodPicker
-            value={period}
-            onChange={setPeriod}
-            range={customRange}
-            onRangeChange={setCustomRange}
-          />
-        }
+        action={<PeriodLabelView value={period} range={customRange} />}
       >
         <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -787,6 +816,7 @@ function SortTh({
   dir,
   onSort,
   right,
+  title,
   children,
 }: {
   k: SortKey;
@@ -794,12 +824,14 @@ function SortTh({
   dir: "asc" | "desc";
   onSort: (k: SortKey) => void;
   right?: boolean;
+  title?: string;
   children: React.ReactNode;
 }) {
   const isActive = active === k;
   const Icon = isActive ? (dir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
   return (
     <th
+      title={title}
       className={cn(
         "font-medium py-2 px-2 cursor-pointer select-none whitespace-nowrap",
         "hover:text-foreground transition-colors",
@@ -1008,6 +1040,15 @@ function CheckRow({ on, label, onClick }: { on: boolean; label: string; onClick:
       </span>
       {label}
     </button>
+  );
+}
+
+function PeriodLabelView({ value, range }: { value: PeriodId; range?: DateRange }) {
+  return (
+    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <CalendarIcon className="w-3 h-3" />
+      {periodLabel(value, range)}
+    </span>
   );
 }
 
