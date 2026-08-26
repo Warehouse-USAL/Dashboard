@@ -571,7 +571,7 @@ function getOrderItems(o: { id: string; product: string; qty: number }) {
   return { items: [{ sku: o.product, qty: o.qty }], total: o.qty, multi: false as const };
 }
 
-function OrdenesPage() {
+export function OrdenesPage() {
   const { data: ordersRaw } = useOrders();
   const orders = useMemo(
     () =>

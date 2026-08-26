@@ -150,7 +150,7 @@ const orderStatusMap: Record<string, string> = {
   cancelled: "cancelada",
 };
 
-function mapOrder(o: BackendOrder): FrontendOrder {
+export function mapOrder(o: BackendOrder): FrontendOrder {
   const firstItem = o.items?.[0];
   const product = o.product ?? firstItem?.sku ?? o.product_sku ?? "—";
   const qty = firstItem?.quantity ?? o.quantity ?? 1;
