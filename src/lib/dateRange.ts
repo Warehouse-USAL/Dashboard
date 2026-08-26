@@ -1,6 +1,26 @@
+import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
 
 export type PeriodId = "24h" | "7d" | "30d" | "90d" | "custom";
+
+export const PERIOD_OPTIONS: Array<{ id: PeriodId; label: string }> = [
+  { id: "24h", label: "Últimas 24 horas" },
+  { id: "7d", label: "Últimos 7 días" },
+  { id: "30d", label: "Últimos 30 días" },
+  { id: "90d", label: "Últimos 90 días" },
+  { id: "custom", label: "Rango personalizado" },
+];
+
+/** Etiqueta legible del período/rango seleccionado, para mostrar junto al picker. */
+export function periodLabel(value: PeriodId, range?: DateRange): string {
+  if (value === "custom") {
+    if (range?.from && range?.to)
+      return `${format(range.from, "dd/MM/yy")} – ${format(range.to, "dd/MM/yy")}`;
+    if (range?.from) return `Desde ${format(range.from, "dd/MM/yy")}`;
+    return "Rango personalizado";
+  }
+  return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
+}
 
 const PERIOD_DAYS: Record<Exclude<PeriodId, "custom">, number> = {
   "24h": 1,
