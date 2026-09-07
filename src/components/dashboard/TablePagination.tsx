@@ -67,7 +67,7 @@ export function TablePagination({
 }
 
 /** Page-number window with ellipsis: first, last, current ±1. */
-function pageWindow(current: number, total: number): Array<number | "…"> {
+export function pageWindow(current: number, total: number): Array<number | "…"> {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i);
   const keep = new Set<number>([0, total - 1, current, current - 1, current + 1]);
   const sorted = [...keep].filter((p) => p >= 0 && p < total).sort((a, b) => a - b);
