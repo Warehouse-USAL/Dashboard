@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Bell, Settings, Save } from "lucide-react";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
+import { useRiskWindow, RISK_WINDOW_OPTIONS } from "@/hooks/useRiskWindow";
 
 export const Route = createFileRoute("/_dash/configuracion")({
   component: ConfigPage,
@@ -13,6 +14,7 @@ function ConfigPage() {
   const [batteryMin, setBatteryMin] = useState(20);
   const [maxHours, setMaxHours] = useState(8);
   const [saved, setSaved] = useState(false);
+  const [riskWindowDays, setRiskWindowDays] = useRiskWindow();
 
   const save = () => {
     setSaved(true);
@@ -74,6 +76,28 @@ function ConfigPage() {
                 onChange={(e) => setMaxHours(Number(e.target.value))}
                 className="w-full accent-primary"
               />
+            </Field>
+            <Field label="Ventana de cálculo de riesgo de stock">
+              <div className="flex items-center gap-2 flex-wrap">
+                {RISK_WINDOW_OPTIONS.map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setRiskWindowDays(d)}
+                    className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                      riskWindowDays === d
+                        ? "border-primary bg-primary/10 text-primary font-semibold"
+                        : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
+                    }`}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                Ventana de demanda usada para decidir "SKUs en riesgo", "Cobertura promedio" y "Dead
+                stock" en Inventario. Se aplica al instante — no está atada al selector de período
+                de esa página, que es solo para explorar datos.
+              </p>
             </Field>
           </div>
         </Panel>

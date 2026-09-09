@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { DateRange } from "react-day-picker";
 import {
   Activity,
   AlertTriangle,
@@ -38,6 +39,18 @@ import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
 import { useOrders } from "@/hooks/useOrders";
 import { useProducts } from "@/hooks/useProducts";
+import { useInventoryMetrics } from "@/hooks/useInventoryMetrics";
+import { useFleetMetrics } from "@/hooks/useFleetMetrics";
+import { formatDuration } from "@/lib/metrics-api";
+import { periodLabel, periodToBounds, withinBounds, type PeriodId } from "@/lib/dateRange";
+import { usePagedList } from "@/hooks/usePagination";
+import { TablePagination } from "@/components/dashboard/TablePagination";
+import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
+import { SourceBadge } from "@/components/dashboard/SourceBadge";
+import { live, period as periodTemporal } from "@/lib/temporality";
+import type { Temporality } from "@/lib/temporality";
+import type { DataSource } from "@/lib/data-source";
 
 export const Route = createFileRoute("/_dash/home")({
   component: HomePage,
@@ -64,8 +77,26 @@ const alertIconMap: Record<string, React.ComponentType<{ className?: string }>> 
 
 function HomePage() {
   const { data: rovers } = useVehicles();
+  const {
+    page: roversPage,
+    setPage: setRoversPage,
+    totalPages: roversTotalPages,
+    pageItems: pagedRovers,
+    from: roversFrom,
+    to: roversTo,
+    total: roversTotal,
+  } = usePagedList(rovers, 10);
   const { data: orders } = useOrders();
   const { data: products } = useProducts();
+  const [period, setPeriod] = useState<PeriodId>("7d");
+  const [customRange, setCustomRange] = useState<DateRange | undefined>();
+  // Same underlying calc as Inventario's "Top rotación" (useInventoryMetrics,
+  // dailyDemand acotado por período) — antes esto era un conteo aparte sobre
+  // órdenes sin filtrar por fecha, así que nunca iba a coincidir con Inventario.
+  const { products: enrichedProducts } = useInventoryMetrics(period, customRange);
+  // Mismo hook que usa Vehículos — así MTBF coincide entre las dos páginas en
+  // vez de que Home muestre "sin datos" mientras Vehículos sí tiene el número.
+  const fleet = useFleetMetrics(period, customRange);
   const { data: positions = [] } = useQuery({
     queryKey: ["warehouse-positions"],
     queryFn: getAllPositions,
@@ -82,23 +113,31 @@ function HomePage() {
     return `${Math.round((totalStock / totalCapacity) * 100)}%`;
   }, [positions]);
 
-  const topSkus = useMemo(() => {
-    const counts = new Map<string, number>();
-    orders
-      .filter((o) => o.state === "completada")
-      .forEach((o) => {
-        const sku = o.product.split(" ")[0];
-        counts.set(sku, (counts.get(sku) ?? 0) + o.qty);
-      });
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
-  }, [orders]);
+  const topSkus = useMemo(
+    () =>
+      [...enrichedProducts]
+        .filter((p) => p.dailyDemand > 0)
+        .sort((a, b) => b.dailyDemand - a.dailyDemand)
+        .slice(0, 4)
+        .map((p) => [p.sku, p.dailyDemand, p.totalUnits] as const),
+    [enrichedProducts],
+  );
 
   const inProcess = orders.filter((o) => o.state === "en proceso").length;
   const totalOrders = orders.length;
-  const completadas = orders.filter((o) => o.state === "completada").length;
-  const canceladas = orders.filter((o) => o.state === "cancelada").length;
-  const compliance =
-    completadas + canceladas > 0 ? Math.round((completadas / (completadas + canceladas)) * 100) : 0;
+
+  // Mismo cálculo que "Cumplimiento" en Órdenes (completadas vs canceladas,
+  // acotado por período, 100% cuando no hay datos) — antes esto se calculaba
+  // sobre TODAS las órdenes sin fecha, así que nunca iba a coincidir.
+  const dateBounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+  const compliance = useMemo(() => {
+    const dateFilteredOrders = orders.filter((o) => withinBounds(o.createdAt, dateBounds));
+    const completadas = dateFilteredOrders.filter((o) => o.state === "completada").length;
+    const canceladas = dateFilteredOrders.filter((o) => o.state === "cancelada").length;
+    return completadas + canceladas > 0
+      ? Math.round((completadas / (completadas + canceladas)) * 100)
+      : 100;
+  }, [orders, dateBounds]);
 
   const inventarioValor = useMemo(() => {
     const total = products.reduce((sum, p) => sum + (p.available * p.priceCents) / 100, 0);
@@ -128,20 +167,38 @@ function HomePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={LayoutDashboard}
-        title="Home"
-        description="Vista general del warehouse · Tiempo real"
-      />
+      {/* sticky: no modifica PageHeader (lo comparten Alertas/Configuración,
+          que no piden esto) — el contenedor local es lo que se pega al hacer
+          scroll dentro de <main>. */}
+      <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2">
+        <PageHeader
+          icon={LayoutDashboard}
+          title="Home"
+          description="Vista general del warehouse · Tiempo real"
+          action={
+            <PeriodPicker
+              value={period}
+              onChange={setPeriod}
+              range={customRange}
+              onRangeChange={setCustomRange}
+            />
+          }
+        />
+      </div>
 
       {/* KPIs */}
       <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard
-          label="Top SKUs"
+          label="Top SKU"
           value={topSkus[0]?.[0] ?? "—"}
           icon={Package}
-          trend={`${topSkus.length} más solicitados`}
+          trend={
+            topSkus[0]
+              ? `${topSkus[0][2].toLocaleString("es-AR")} u. vendidas · ${periodLabel(period, customRange)}`
+              : "Sin demanda en el período"
+          }
           accent="primary"
+          temporal={periodTemporal(periodLabel(period, customRange))}
         />
         <KpiCard
           label="Ocupación almacén"
@@ -149,6 +206,7 @@ function HomePage() {
           icon={Warehouse}
           trend={`${products.length} SKUs activos`}
           accent="primary"
+          temporal={live()}
         />
         <KpiCard
           label="Órdenes en proceso"
@@ -156,6 +214,7 @@ function HomePage() {
           icon={Activity}
           trend={`${totalOrders} totales`}
           accent="accent"
+          temporal={live()}
         />
         <KpiCard
           label="Valor del inventario"
@@ -163,20 +222,24 @@ function HomePage() {
           icon={DollarSign}
           trend="stock disponible × precio"
           accent="primary"
+          temporal={live()}
         />
         <KpiCard
           label="Cumplimiento"
           value={`${compliance}%`}
           icon={CheckCircle2}
-          trend="completadas vs canceladas"
+          trend={`completadas vs canceladas · ${periodLabel(period, customRange)}`}
           accent="primary"
+          temporal={periodTemporal(periodLabel(period, customRange))}
         />
         <KpiCard
           label="T. Prom. Entre Fallas"
-          value="—"
+          value={formatDuration(fleet.fleetMtbf)}
           icon={HeartPulse}
-          trend="Sin datos disponibles"
+          trend={fleet.fleetMtbf === null ? "Sin fallas en el período" : "Prom. entre fallas"}
           accent="destructive"
+          temporal={periodTemporal(periodLabel(period, customRange))}
+          source={fleet.metricsSource}
         />
       </section>
 
@@ -187,6 +250,7 @@ function HomePage() {
           subtitle="Layout y posición de rovers"
           icon={MapIcon}
           className="xl:col-span-2"
+          action={<TemporalBadge value={live()} />}
         >
           <WarehouseMap rovers={animatedRovers} />
           <div className="flex flex-wrap gap-3 mt-3 text-[11px]">
@@ -202,12 +266,15 @@ function HomePage() {
           subtitle={`${alerts.length} eventos sin reconocer`}
           icon={Bell}
           action={
-            <Link
-              to="/alertas"
-              className="text-xs text-primary hover:underline flex items-center gap-1"
-            >
-              Todas <ChevronRight className="w-3 h-3" />
-            </Link>
+            <div className="flex items-center gap-2">
+              <SourceBadge source="mock" />
+              <Link
+                to="/alertas"
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                Todas <ChevronRight className="w-3 h-3" />
+              </Link>
+            </div>
           }
         >
           <div className="space-y-2">
@@ -239,9 +306,10 @@ function HomePage() {
           subtitle="Batería y operación"
           icon={Truck}
           className="xl:col-span-2"
+          action={<TemporalBadge value={live()} />}
         >
           <div className="space-y-2">
-            {rovers.map((r) => {
+            {pagedRovers.map((r) => {
               const bt = batteryTone(r.battery);
               return (
                 <div
@@ -274,31 +342,58 @@ function HomePage() {
               );
             })}
           </div>
+          <TablePagination
+            page={roversPage}
+            totalPages={roversTotalPages}
+            onPageChange={setRoversPage}
+            from={roversFrom}
+            to={roversTo}
+            total={roversTotal}
+            itemLabel="rovers"
+          />
         </Panel>
 
-        <Panel title="Top SKUs" subtitle="Unidades pedidas" icon={Target}>
+        <Panel
+          title="Top SKUs"
+          subtitle={`Mayor demanda diaria · ${periodLabel(period, customRange)}`}
+          icon={Target}
+          action={<TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />}
+        >
           <div className="space-y-2">
-            {topSkus.map(([sku, q]) => {
+            {topSkus.map(([sku, demand]) => {
               const max = topSkus[0]?.[1] ?? 1;
               return (
                 <div key={sku} className="p-3 rounded-lg bg-secondary/30 border border-border">
                   <div className="flex justify-between items-center mb-1.5">
                     <span className="text-xs font-bold">{sku}</span>
-                    <span className="text-[11px] text-muted-foreground">{q} u</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {demand < 1 ? demand.toFixed(1) : Math.round(demand)} u/d
+                    </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                    <div className="h-full bg-primary" style={{ width: `${(q / max) * 100}%` }} />
+                    <div
+                      className="h-full bg-primary"
+                      style={{ width: `${(demand / max) * 100}%` }}
+                    />
                   </div>
                 </div>
               );
             })}
+            {topSkus.length === 0 && (
+              <p className="text-[11px] text-muted-foreground text-center py-6">Sin datos</p>
+            )}
           </div>
         </Panel>
       </section>
 
       {/* Charts */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Panel title="Eficiencia de picking" subtitle="Unidades por hora" icon={Clock}>
+        <Panel
+          title="Eficiencia de picking"
+          subtitle="Unidades por hora"
+          icon={Clock}
+          action={<SourceBadge source="mock" />}
+        >
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={picking}>
               <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
@@ -310,7 +405,12 @@ function HomePage() {
           </ResponsiveContainer>
         </Panel>
 
-        <Panel title="Órdenes por hora" subtitle="Completadas vs canceladas" icon={Activity}>
+        <Panel
+          title="Órdenes por hora"
+          subtitle="Completadas vs canceladas"
+          icon={Activity}
+          action={<SourceBadge source="mock" />}
+        >
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={ordersHour}>
               <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
@@ -338,7 +438,12 @@ function HomePage() {
           </div>
         </Panel>
 
-        <Panel title="Duración del stock" subtitle="Días hasta quiebre" icon={Warehouse}>
+        <Panel
+          title="Duración del stock"
+          subtitle="Días hasta quiebre"
+          icon={Warehouse}
+          action={<SourceBadge source="mock" />}
+        >
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={stockDuration} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
@@ -370,12 +475,16 @@ function KpiCard({
   icon: Icon,
   trend,
   accent,
+  temporal,
+  source = "live",
 }: {
   label: string;
   value: string;
   icon: React.ComponentType<{ className?: string }>;
   trend: string;
   accent: "primary" | "accent" | "destructive";
+  temporal: Temporality;
+  source?: DataSource;
 }) {
   const accentMap = {
     primary: "text-primary bg-primary/10",
@@ -387,11 +496,15 @@ function KpiCard({
       className="relative rounded-xl border border-border bg-card p-5 overflow-hidden hover:border-primary/30 transition"
       style={{ background: "var(--gradient-surface)" }}
     >
-      <div className="flex justify-between items-start mb-3">
+      <div className="flex justify-between items-start mb-3 gap-2">
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center ${accentMap[accent]}`}
         >
           <Icon className="w-5 h-5" />
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <TemporalBadge value={temporal} />
+          <SourceBadge source={source} />
         </div>
       </div>
       <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{label}</p>

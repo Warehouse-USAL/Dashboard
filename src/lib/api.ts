@@ -35,7 +35,32 @@ export type FrontendProduct = {
 // sessionStorage (per-tab, gone when the tab closes). Nothing secret ships in the JS.
 
 const TOKEN_KEY = "wh_token";
+const ROLE_KEY = "wh_role";
 let cachedToken: string | null = null;
+let cachedRole: UserRole | null = null;
+
+/** Roles del backend (domain/UserRole.java). DASHBOARD es el de sólo lectura. */
+export type UserRole =
+  | "SUPERADMIN"
+  | "ADMIN_SYSTEM"
+  | "ADMIN_WAREHOUSE"
+  | "ADMIN_SALES"
+  | "PROVIDER"
+  | "DISPATCHER"
+  | "OPERATOR"
+  | "DASHBOARD";
+
+/**
+ * Roles que el backend deja leer `/metrics/**` y `/query/{vehicles,positions}`.
+ * Espejo de MetricsController.java:24 y EntityRegistry.java:30-32 — si allá se
+ * amplía, acá también.
+ */
+const FLEET_METRICS_ROLES: ReadonlySet<string> = new Set<UserRole>([
+  "SUPERADMIN",
+  "ADMIN_SYSTEM",
+  "ADMIN_WAREHOUSE",
+  "DASHBOARD",
+]);
 
 export function getStoredToken(): string | null {
   if (cachedToken) return cachedToken;
@@ -50,7 +75,30 @@ export function setStoredToken(token: string): void {
 
 export function clearStoredToken(): void {
   cachedToken = null;
-  if (typeof window !== "undefined") window.sessionStorage.removeItem(TOKEN_KEY);
+  cachedRole = null;
+  if (typeof window !== "undefined") {
+    window.sessionStorage.removeItem(TOKEN_KEY);
+    window.sessionStorage.removeItem(ROLE_KEY);
+  }
+}
+
+export function getStoredRole(): UserRole | null {
+  if (cachedRole) return cachedRole;
+  if (typeof window !== "undefined")
+    cachedRole = window.sessionStorage.getItem(ROLE_KEY) as UserRole | null;
+  return cachedRole;
+}
+
+/**
+ * Si este usuario puede leer métricas de flota y stock, o si esos paneles tienen
+ * que degradar. Se pregunta ANTES de disparar la request: el backend rechaza
+ * `/metrics/**` con 403, pero `/query/{vehicles,positions}` con 400
+ * UNKNOWN_ENTITY — deliberadamente no revela que la entidad existe — así que un
+ * fallo de permisos no se distingue de un bug leyendo sólo la respuesta.
+ */
+export function canReadFleetMetrics(): boolean {
+  const role = getStoredRole();
+  return role !== null && FLEET_METRICS_ROLES.has(role);
 }
 
 /** Called by the login screen with the user's own credentials. */
@@ -61,8 +109,13 @@ export async function login(email: string, password: string): Promise<void> {
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(`Login failed: ${res.status}`);
-  const body = (await res.json()) as { token: string };
+  const body = (await res.json()) as { token: string; user?: { role?: UserRole } };
   setStoredToken(body.token);
+  // El rol venía en la respuesta desde siempre y se descartaba. Sin él no hay
+  // forma de saber qué paneles puede ver este usuario sin pedirlos y fallar.
+  const role = body.user?.role ?? null;
+  cachedRole = role;
+  if (typeof window !== "undefined" && role) window.sessionStorage.setItem(ROLE_KEY, role);
 }
 
 function redirectToLogin(): void {
@@ -84,6 +137,25 @@ async function apiFetch(path: string): Promise<Response> {
   const token = await getToken();
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) {
+    clearStoredToken();
+    redirectToLogin();
+  }
+  return res;
+}
+
+/**
+ * POST autenticado con cuerpo JSON, para las dos APIs de dashboard.
+ * Comparte con apiFetch() el manejo de 401 — un token vencido tiene que echar
+ * al usuario igual venga por donde venga.
+ */
+export async function apiPost(path: string, body: unknown): Promise<Response> {
+  const token = await getToken();
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
   if (res.status === 401) {
     clearStoredToken();
@@ -150,7 +222,36 @@ const orderStatusMap: Record<string, string> = {
   cancelled: "cancelada",
 };
 
-function mapOrder(o: BackendOrder): FrontendOrder {
+/**
+ * OrderPriority del backend (LOW/MEDIUM/HIGH/URGENT) a las etiquetas que usa la
+ * UI.
+ *
+ * Traducir acá no es cosmético: la tabla de Órdenes filtra por un Set de
+ * {"alta","media","baja","urgente"}, así que una prioridad sin traducir no
+ * matchea, `return false`, y la fila desaparece de la tabla sin ningún error.
+ *
+ * Se aceptan las dos grafías porque las dos existen: `GET /orders` serializa con
+ * el @JsonValue del enum y llega en minúsculas, mientras que `/query/orders` lee
+ * el documento crudo de Mongo y llega en MAYÚSCULAS.
+ */
+const orderPriorityMap: Record<string, string> = {
+  low: "baja",
+  medium: "media",
+  high: "alta",
+  urgent: "urgente",
+};
+
+export function mapOrderPriority(raw: string | null | undefined): string {
+  // null es real y no es lo mismo que MEDIUM: las órdenes anteriores a este
+  // deploy del backend no tienen prioridad y no hay backfill. Se muestran como
+  // "media" porque la UI no tiene una categoría para "sin dato", pero el default
+  // del backend para órdenes nuevas también es MEDIUM, así que no se inventa una
+  // prioridad que contradiga nada.
+  if (!raw) return "media";
+  return orderPriorityMap[raw.toLowerCase()] ?? raw.toLowerCase();
+}
+
+export function mapOrder(o: BackendOrder): FrontendOrder {
   const firstItem = o.items?.[0];
   const product = o.product ?? firstItem?.sku ?? o.product_sku ?? "—";
   const qty = firstItem?.quantity ?? o.quantity ?? 1;
@@ -160,7 +261,7 @@ function mapOrder(o: BackendOrder): FrontendOrder {
     id: o.id,
     product,
     qty,
-    priority: o.priority ?? "media",
+    priority: mapOrderPriority(o.priority),
     state: orderStatusMap[rawState] ?? rawState,
     rover,
     createdAt: o.timestamps?.created_at,
@@ -231,9 +332,13 @@ function mapProduct(p: BackendProduct): FrontendProduct {
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
-export async function getVehicles(): Promise<Rover[]> {
+// Same rationale as getOrders()/getProducts(): request the backend's hard cap
+// (50) by default instead of its default page size (10).
+export async function getVehicles(size: number = 50): Promise<Rover[]> {
   try {
-    const res = await apiFetch("/vehicles");
+    const params = new URLSearchParams();
+    if (size) params.set("size", size.toString());
+    const res = await apiFetch(`/vehicles?${params.toString()}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
     const data = (
@@ -249,7 +354,12 @@ export async function getVehicles(): Promise<Rover[]> {
 export async function getOrders(
   status?: string,
   fromISO?: string,
-  size?: number,
+  // Defaults to the backend's hard cap (50) instead of its own default page
+  // size (10) — callers that don't pass `size` want "everything currently
+  // available", not silently just the first 10. See getProducts() below for
+  // the same fix. If the dataset ever needs more than 50 rows, this needs
+  // real server-side pagination (page cursor), not just a bigger cap.
+  size: number = 50,
   vehicleId?: string,
 ): Promise<FrontendOrder[]> {
   try {
@@ -271,9 +381,13 @@ export async function getOrders(
   }
 }
 
-export async function getProducts(): Promise<FrontendProduct[]> {
+// Same rationale as getOrders() above: request the backend's hard cap (50)
+// by default instead of its default page size (10).
+export async function getProducts(size: number = 50): Promise<FrontendProduct[]> {
   try {
-    const res = await apiFetch("/products");
+    const params = new URLSearchParams();
+    if (size) params.set("size", size.toString());
+    const res = await apiFetch(`/products?${params.toString()}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
     const list = (
