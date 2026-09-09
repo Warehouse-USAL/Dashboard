@@ -33,6 +33,10 @@ export default defineConfig({
         "/orders": { target: backendUrl, changeOrigin: true },
         "/products": { target: backendUrl, changeOrigin: true },
         "/warehouse": { target: backendUrl, changeOrigin: true },
+        // APIs de dashboard (backend d303857): agregaciones de negocio sobre
+        // MongoDB y series temporales de rovers sobre VictoriaMetrics.
+        "/query": { target: backendUrl, changeOrigin: true },
+        "/metrics": { target: backendUrl, changeOrigin: true },
         "/ws": { target: backendWsUrl, ws: true, changeOrigin: true },
       },
     },

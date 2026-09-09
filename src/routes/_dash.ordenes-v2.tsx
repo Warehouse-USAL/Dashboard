@@ -28,9 +28,13 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { useQuery } from "@tanstack/react-query";
-import { getOrders } from "@/lib/api";
 import { useOrders } from "@/hooks/useOrders";
+import { useOrderStats } from "@/hooks/useOrderStats";
+import { SourceBadge } from "@/components/dashboard/SourceBadge";
+import type { DataSource } from "@/lib/data-source";
+import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
+import { live, period as periodTemporal } from "@/lib/temporality";
+import type { Temporality } from "@/lib/temporality";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { periodToBounds, withinBounds } from "@/lib/dateRange";
@@ -54,9 +58,11 @@ const PERIOD_OPTIONS = [
   { id: "custom", label: "Rango personalizado" },
 ] as const;
 type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"];
-type DataPeriodId = Exclude<PeriodId, "custom">;
 
-type Priority = "alta" | "media" | "baja";
+// Las cuatro de OrderPriority en el backend (LOW/MEDIUM/HIGH/URGENT), traducidas
+// por mapOrderPriority. Antes eran tres porque el backend no mandaba prioridad y
+// todas caían en "media".
+type Priority = "urgente" | "alta" | "media" | "baja";
 type OrderState = "pending" | "in_progress" | "completed" | "cancelled";
 
 const STATE_LABELS: Record<OrderState, string> = {
@@ -75,6 +81,7 @@ const LEGACY_STATE_MAP: Record<string, OrderState> = {
 };
 
 const PRIORITY_FILTERS: { id: Priority; label: string }[] = [
+  { id: "urgente", label: "Urgente" },
   { id: "alta", label: "Alta" },
   { id: "media", label: "Media" },
   { id: "baja", label: "Baja" },
@@ -92,149 +99,6 @@ function periodLabel(value: PeriodId, range?: DateRange) {
   }
   return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
 }
-
-// --- datasets sintéticos por período ---
-
-const KPIS_BY_PERIOD: Record<
-  DataPeriodId,
-  {
-    ordHora: number;
-    ordHoraDelta: number;
-    cycle: number;
-    cycleDelta: number;
-    sla: number;
-    slaDelta: number;
-    total: number;
-  }
-> = {
-  "24h": {
-    ordHora: 124,
-    ordHoraDelta: 8,
-    cycle: 18.6,
-    cycleDelta: -2.1,
-    sla: 96.4,
-    slaDelta: 1.3,
-    total: 2976,
-  },
-  "7d": {
-    ordHora: 118,
-    ordHoraDelta: 4,
-    cycle: 19.4,
-    cycleDelta: -1.2,
-    sla: 95.8,
-    slaDelta: 0.6,
-    total: 19824,
-  },
-  "30d": {
-    ordHora: 121,
-    ordHoraDelta: 2,
-    cycle: 19.0,
-    cycleDelta: -0.8,
-    sla: 96.0,
-    slaDelta: 0.9,
-    total: 87120,
-  },
-  "90d": {
-    ordHora: 119,
-    ordHoraDelta: -1,
-    cycle: 19.7,
-    cycleDelta: 0.3,
-    sla: 95.2,
-    slaDelta: -0.2,
-    total: 257040,
-  },
-};
-
-const DISTRIBUCION_BY_PERIOD: Record<DataPeriodId, Record<OrderState, number>> = {
-  "24h": { pending: 93, in_progress: 32, completed: 12, cancelled: 5 },
-  "7d": { pending: 480, in_progress: 210, completed: 1840, cancelled: 62 },
-  "30d": { pending: 1240, in_progress: 640, completed: 8120, cancelled: 244 },
-  "90d": { pending: 3210, in_progress: 1840, completed: 23890, cancelled: 712 },
-};
-
-const AGING_BY_PERIOD: Record<
-  DataPeriodId,
-  Array<{ bucket: string; value: number; tone: string }>
-> = {
-  "24h": [
-    { bucket: "< 5 min", value: 42, tone: "bg-emerald-500" },
-    { bucket: "5 - 15 min", value: 28, tone: "bg-emerald-500" },
-    { bucket: "15 - 30 min", value: 15, tone: "bg-amber-400" },
-    { bucket: "30 - 60 min", value: 6, tone: "bg-amber-500" },
-    { bucket: "> 60 min", value: 2, tone: "bg-rose-500" },
-  ],
-  "7d": [
-    { bucket: "< 5 min", value: 184, tone: "bg-emerald-500" },
-    { bucket: "5 - 15 min", value: 142, tone: "bg-emerald-500" },
-    { bucket: "15 - 30 min", value: 78, tone: "bg-amber-400" },
-    { bucket: "30 - 60 min", value: 34, tone: "bg-amber-500" },
-    { bucket: "> 60 min", value: 12, tone: "bg-rose-500" },
-  ],
-  "30d": [
-    { bucket: "< 5 min", value: 612, tone: "bg-emerald-500" },
-    { bucket: "5 - 15 min", value: 488, tone: "bg-emerald-500" },
-    { bucket: "15 - 30 min", value: 246, tone: "bg-amber-400" },
-    { bucket: "30 - 60 min", value: 110, tone: "bg-amber-500" },
-    { bucket: "> 60 min", value: 38, tone: "bg-rose-500" },
-  ],
-  "90d": [
-    { bucket: "< 5 min", value: 1840, tone: "bg-emerald-500" },
-    { bucket: "5 - 15 min", value: 1420, tone: "bg-emerald-500" },
-    { bucket: "15 - 30 min", value: 720, tone: "bg-amber-400" },
-    { bucket: "30 - 60 min", value: 340, tone: "bg-amber-500" },
-    { bucket: "> 60 min", value: 124, tone: "bg-rose-500" },
-  ],
-};
-
-const REINTENTOS_BY_PERIOD: Record<DataPeriodId, { pct: number; n: number }> = {
-  "24h": { pct: 2.3, n: 3 },
-  "7d": { pct: 2.1, n: 18 },
-  "30d": { pct: 1.9, n: 72 },
-  "90d": { pct: 2.0, n: 212 },
-};
-
-const CUMPLIMIENTO_BY_PERIOD: Record<DataPeriodId, { pct: number; delta: number }> = {
-  "24h": { pct: 97.6, delta: 1.2 },
-  "7d": { pct: 96.8, delta: 0.6 },
-  "30d": { pct: 96.4, delta: 0.4 },
-  "90d": { pct: 95.9, delta: -0.1 },
-};
-
-const HORAS_BY_PERIOD: Record<DataPeriodId, Array<{ h: string; ordenes: number }>> = {
-  "24h": [
-    "00:00",
-    "02:00",
-    "04:00",
-    "06:00",
-    "08:00",
-    "10:00",
-    "12:00",
-    "14:00",
-    "16:00",
-    "18:00",
-    "20:00",
-    "22:00",
-  ].map((h, i) => ({
-    h,
-    ordenes: [22, 18, 15, 28, 72, 128, 162, 158, 148, 118, 76, 42][i],
-  })),
-  "7d": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d, i) => ({
-    h: d,
-    ordenes: [820, 910, 880, 950, 1020, 640, 420][i],
-  })),
-  "30d": Array.from({ length: 6 }, (_, i) => ({
-    h: `Sem ${i + 1}`,
-    ordenes: [4200, 4480, 4310, 4720, 4910, 4560][i],
-  })),
-  "90d": ["Mar", "Abr", "May"].map((m, i) => ({ h: m, ordenes: [18800, 19420, 20140][i] })),
-};
-
-const PRIORIDAD_BY_PERIOD: Record<DataPeriodId, { alta: number; media: number; baja: number }> = {
-  "24h": { alta: 45, media: 48, baja: 32 },
-  "7d": { alta: 312, media: 340, baja: 218 },
-  "30d": { alta: 1280, media: 1410, baja: 920 },
-  "90d": { alta: 3920, media: 4310, baja: 2780 },
-};
 
 // histórico sintético (en producción vendría del backend filtrado por rango)
 type HistRow = {
@@ -538,7 +402,10 @@ const STATE_COLOR: Record<OrderState, string> = {
   cancelled: COLORS.red,
 };
 const PRIORITY_COLOR: Record<Priority, string> = {
-  alta: COLORS.red,
+  // Urgente y alta comparten la mitad caliente de la escala pero se distinguen:
+  // si urgente reusara el rojo de alta, agregar la categoría no serviría de nada.
+  urgente: COLORS.red,
+  alta: COLORS.orange,
   media: COLORS.amber,
   baja: COLORS.muted,
 };
@@ -591,13 +458,10 @@ export function OrdenesPage() {
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Real date-range filter — bounds the actual orders list (table + real panels
-  // below), not just the synthetic histórico/KPI datasets keyed by período.
+  // Sigue haciendo falta sólo para "Histórico de órdenes" (todavía hardcodeado
+  // más abajo) — el resto de los paneles que usaban esto ahora leen de
+  // useOrderStats, que pide su propia ventana acotada directo al backend.
   const dateBounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
-  const dateFilteredOrders = useMemo(
-    () => orders.filter((o) => withinBounds(o.createdAt, dateBounds)),
-    [orders, dateBounds],
-  );
 
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
@@ -607,42 +471,13 @@ export function OrdenesPage() {
       return next;
     });
 
-  const dataPeriod: DataPeriodId = useMemo(() => {
-    if (period !== "custom") return period;
-    if (!customRange?.from || !customRange?.to) return "30d";
-    const days = Math.ceil((customRange.to.getTime() - customRange.from.getTime()) / 86_400_000);
-    if (days <= 1) return "24h";
-    if (days <= 7) return "7d";
-    if (days <= 30) return "30d";
-    return "90d";
-  }, [period, customRange]);
-
-  // ISO timestamp for 24 hours ago — stable for the session (memo with no deps)
-  const from24hISO = useMemo(() => {
-    const d = new Date();
-    d.setHours(d.getHours() - 24);
-    return d.toISOString();
-  }, []);
-
-  const { data: completed24h = [] } = useQuery({
-    queryKey: ["orders-completed-24h", from24hISO],
-    queryFn: () => getOrders("completed", from24hISO, 50),
-    refetchInterval: 60_000,
-    staleTime: 30_000,
-  });
-
-  const ordHora = useMemo(() => +(completed24h.length / 24).toFixed(2), [completed24h]);
-
-  const cycleTimeMin = useMemo(() => {
-    const withTs = completed24h.filter((o) => o.createdAt && o.completedAt);
-    if (!withTs.length) return null;
-    const avgMs =
-      withTs.reduce(
-        (s, o) => s + (new Date(o.completedAt!).getTime() - new Date(o.createdAt!).getTime()),
-        0,
-      ) / withTs.length;
-    return +(avgMs / 60_000).toFixed(1);
-  }, [completed24h]);
+  // KPIs, distribución, cumplimiento, prioridad y el gráfico "por hora" — todos
+  // agregados server-side sobre las 729 órdenes reales, acotados por el mismo
+  // período que el resto de la página. Reemplaza dos bugs a la vez: el tope de
+  // 50 filas de GET /orders (contábamos en JS sobre como mucho 50, nunca 729),
+  // y una ventana fija de "últimas 24h" en Completadas/hora, Cycle time y SLA
+  // que ignoraba el picker por completo.
+  const stats = useOrderStats(period, customRange, SLA_MINUTES * 60_000);
 
   // Aging is a live snapshot of what's currently open — intentionally NOT
   // date-filtered (an order stuck since last week should still show up here).
@@ -669,71 +504,54 @@ export function OrdenesPage() {
     ];
   }, [orders]);
 
-  const kpis = { ...KPIS_BY_PERIOD[dataPeriod], total: dateFilteredOrders.length };
-  const reintentos = REINTENTOS_BY_PERIOD[dataPeriod];
-  const horas = HORAS_BY_PERIOD[dataPeriod];
-
-  // Real distribution from API, bounded by the selected período
-  const distribucion: Record<OrderState, number> = useMemo(
-    () => ({
-      pending: dateFilteredOrders.filter((o) => o.state === "pending").length,
-      in_progress: dateFilteredOrders.filter((o) => o.state === "in_progress").length,
-      completed: dateFilteredOrders.filter((o) => o.state === "completed").length,
-      cancelled: dateFilteredOrders.filter((o) => o.state === "cancelled").length,
-    }),
-    [dateFilteredOrders],
-  );
-
-  const distTotal = (Object.values(distribucion) as number[]).reduce((a, b) => a + b, 0);
-  const distData = (Object.keys(distribucion) as OrderState[]).map((k) => ({
+  const distTotal = stats.total;
+  const distData = (Object.keys(stats.counts) as OrderState[]).map((k) => ({
     name: STATE_LABELS[k],
     key: k,
-    value: distribucion[k],
+    value: stats.counts[k],
   }));
-  // SLA compliance: % of completed-24h orders finished within SLA_MINUTES
-  const slaPct = useMemo(() => {
-    const withTs = completed24h.filter((o) => o.createdAt && o.completedAt);
-    if (!withTs.length) return null;
-    const withinSla = withTs.filter(
-      (o) =>
-        new Date(o.completedAt!).getTime() - new Date(o.createdAt!).getTime() <=
-        SLA_MINUTES * 60_000,
-    );
-    return Math.round((withinSla.length / withTs.length) * 100);
-  }, [completed24h]);
 
-  // Real cumplimiento from API (completadas vs canceladas), bounded by período
-  const cumplimiento = useMemo(() => {
-    const comp = dateFilteredOrders.filter((o) => o.state === "completed").length;
-    const canc = dateFilteredOrders.filter((o) => o.state === "cancelled").length;
-    return {
-      pct: comp + canc > 0 ? Math.round((comp / (comp + canc)) * 100) : 100,
-      delta: 0,
-    };
-  }, [dateFilteredOrders]);
+  // Prioridad de la cola activa — en vivo, mismo criterio que Cola/Aging:
+  // sólo pending/in_progress, no depende del período. Antes esta torta salía
+  // de stats.priorityCounts (agregado sobre TODO el período elegido), que
+  // contesta "qué prioridad tuvo el histórico", una pregunta distinta de "qué
+  // hay que atender ahora".
+  const livePriorityCounts = useMemo(() => {
+    const counts: Record<Priority, number> = { urgente: 0, alta: 0, media: 0, baja: 0 };
+    for (const o of orders) {
+      if (o.state !== "pending" && o.state !== "in_progress") continue;
+      const p = o.priority?.toLowerCase() as Priority | undefined;
+      if (p && p in counts) counts[p] += 1;
+    }
+    return counts;
+  }, [orders]);
 
-  // Real priority distribution from API, bounded by período
-  const prioridad = useMemo(
-    () => ({
-      alta: dateFilteredOrders.filter((o) => o.priority?.toLowerCase() === "alta").length,
-      media: dateFilteredOrders.filter(
-        (o) => !["alta", "baja"].includes(o.priority?.toLowerCase() ?? ""),
-      ).length,
-      baja: dateFilteredOrders.filter((o) => o.priority?.toLowerCase() === "baja").length,
-    }),
-    [dateFilteredOrders],
-  );
-
-  const prioTotal = prioridad.alta + prioridad.media + prioridad.baja;
+  const prioTotal =
+    livePriorityCounts.urgente +
+    livePriorityCounts.alta +
+    livePriorityCounts.media +
+    livePriorityCounts.baja;
   const prioData = [
-    { name: "Alta", key: "alta" as Priority, value: prioridad.alta },
-    { name: "Media", key: "media" as Priority, value: prioridad.media },
-    { name: "Baja", key: "baja" as Priority, value: prioridad.baja },
+    { name: "Urgente", key: "urgente" as Priority, value: livePriorityCounts.urgente },
+    { name: "Alta", key: "alta" as Priority, value: livePriorityCounts.alta },
+    { name: "Media", key: "media" as Priority, value: livePriorityCounts.media },
+    { name: "Baja", key: "baja" as Priority, value: livePriorityCounts.baja },
   ];
 
+  // dataKeys que ya esperaba el gráfico de líneas ("h"/"ordenes"); el hook
+  // devuelve nombres más genéricos porque no es específico de este gráfico.
+  const horas = stats.hourly.map((p) => ({ h: p.label, ordenes: p.orders }));
+
+  // Cola de trabajo pendiente — en vivo, no acotada por período (mismo criterio
+  // que distribucion/aging arriba: es "qué falta hacer ahora", no "qué se creó
+  // en el rango elegido"). Excluye completed/cancelled sin condición: esas ya
+  // no son cola, son historial, y ese es el trabajo de "Histórico de órdenes"
+  // más abajo. Por eso "todas" en TableTabs pasa a significar "todo lo activo",
+  // no "todos los estados que existen".
   const filteredTable = useMemo(
     () =>
-      dateFilteredOrders.filter((o) => {
+      orders.filter((o) => {
+        if (o.state !== "pending" && o.state !== "in_progress") return false;
         if (tableTab !== "todas" && o.state !== tableTab) return false;
         if (!priorityFilter.has(o.priority as Priority)) return false;
         if (!stateFilter.has(o.state as OrderState)) return false;
@@ -741,7 +559,7 @@ export function OrdenesPage() {
           return false;
         return true;
       }),
-    [dateFilteredOrders, tableTab, priorityFilter, stateFilter, q],
+    [orders, tableTab, priorityFilter, stateFilter, q],
   );
 
   const {
@@ -754,22 +572,64 @@ export function OrdenesPage() {
     total: ordersTotal,
   } = usePagedList(filteredTable, 10);
 
+  // Histórico real, acotado por el período — reemplaza el array HISTORICO
+  // inventado. Misma fuente que el resto de la página (`orders`, GET /orders,
+  // mismo tope de 50 filas que ya tienen Cola/Aging — no es una limitación
+  // nueva). A diferencia de Cola, acá van TODOS los estados: esto es
+  // historial, no una cola de trabajo pendiente.
   const filteredHist = useMemo(() => {
-    const now = Date.now();
-    return HISTORICO.map((h) => ({ ...h, t: now - h.offsetH * 3_600_000 }))
-      .filter((h) => {
-        if (!priorityFilter.has(h.priority)) return false;
-        if (!stateFilter.has(h.state)) return false;
-        if (h.t < dateBounds.from || h.t > dateBounds.to) return false;
+    return orders
+      .filter((o) => {
+        if (!withinBounds(o.createdAt, dateBounds)) return false;
+        const p = (o.priority?.toLowerCase() as Priority) ?? "media";
+        if (!priorityFilter.has(p)) return false;
+        if (!stateFilter.has(o.state as OrderState)) return false;
         return true;
       })
-      .map((h) => ({ ...h, fecha: format(new Date(h.t), "dd/MM/yyyy HH:mm") }));
-  }, [priorityFilter, stateFilter, dateBounds]);
+      .map((o) => {
+        const t = o.createdAt ? new Date(o.createdAt).getTime() : 0;
+        const { items, total, multi } = getOrderItems(o);
+        const cycleMs =
+          o.createdAt && o.completedAt
+            ? new Date(o.completedAt).getTime() - new Date(o.createdAt).getTime()
+            : null;
+        const queueMs =
+          o.createdAt && o.startedAt
+            ? new Date(o.startedAt).getTime() - new Date(o.createdAt).getTime()
+            : null;
+        return {
+          orden: o.id,
+          t,
+          fecha: o.createdAt ? format(new Date(o.createdAt), "dd/MM/yyyy HH:mm") : "—",
+          producto: multi ? `${items.length} productos` : (items[0]?.sku ?? o.product),
+          qty: total,
+          priority: (o.priority?.toLowerCase() as Priority) ?? "media",
+          state: o.state as OrderState,
+          rover: o.rover,
+          // null cuando la orden no llegó a esa etapa — "—", no "0 min":
+          // no tardó cero, todavía no pasó.
+          tiempo: cycleMs !== null ? `${Math.round(cycleMs / 60_000)} min` : "—",
+          queue: queueMs !== null ? `${Math.round(queueMs / 60_000)} min` : "—",
+          motivo: o.cancelReason ?? "—",
+        };
+      })
+      .sort((a, b) => b.t - a.t);
+  }, [orders, dateBounds, priorityFilter, stateFilter]);
+
+  const {
+    page: histPage,
+    setPage: setHistPage,
+    totalPages: histTotalPages,
+    pageItems: pagedHist,
+    from: histFrom,
+    to: histTo,
+    total: histTotal,
+  } = usePagedList(filteredHist, 10);
 
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-end justify-end gap-2 flex-wrap text-xs">
+      <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 flex items-end justify-end gap-2 flex-wrap text-xs">
         <PeriodPicker
           value={period}
           onChange={setPeriod}
@@ -789,40 +649,60 @@ export function OrdenesPage() {
         <KpiCard
           icon={Gauge}
           label="Completadas / hora"
-          value={ordHora.toFixed(2)}
-          sub="Últimas 24 horas"
+          value={stats.ordersPerHour.toFixed(2)}
+          sub={`Promedio · ${periodLabel(period, customRange)}`}
           tone="primary"
           neutral
+          source={stats.source}
+          temporal={periodTemporal(periodLabel(period, customRange))}
         />
         <KpiCard
           icon={Timer}
           label="Cycle time prom."
-          value={cycleTimeMin !== null ? `${cycleTimeMin} min` : "—"}
-          sub="Últimas 24 horas"
+          value={stats.cycleTimeMin !== null ? `${stats.cycleTimeMin} min` : "—"}
+          sub={periodLabel(period, customRange)}
           tone="warning"
           neutral
+          source={stats.source}
+          temporal={periodTemporal(periodLabel(period, customRange))}
         />
         <KpiCard
           icon={ShieldCheck}
           label="SLA compliance"
-          value={slaPct !== null ? `${slaPct}%` : "—"}
-          sub={`Completadas en ≤${SLA_MINUTES} min · 24h`}
+          value={stats.slaPct !== null ? `${stats.slaPct}%` : "—"}
+          sub={`Completadas en ≤${SLA_MINUTES} min · ${periodLabel(period, customRange)}`}
           tone="success"
           neutral
+          source={stats.source}
+          temporal={periodTemporal(periodLabel(period, customRange))}
         />
         <KpiCard
           icon={ListChecks}
           label="Órdenes totales"
-          value={kpis.total.toLocaleString("es-AR")}
-          sub="Total en el período"
+          value={stats.total.toLocaleString("es-AR")}
+          sub={
+            stats.windowClamped
+              ? "Recortado a 92 días — máximo por consulta"
+              : `Total en el período`
+          }
           tone="info"
           neutral
+          source={stats.source}
+          temporal={periodTemporal(periodLabel(period, customRange))}
         />
       </div>
 
       {/* Fila 2 — distribución + aging + reintentos + cumplimiento */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <Panel title="Distribución por estado">
+        <Panel
+          title="Distribución por estado"
+          action={
+            <div className="flex items-center gap-2">
+              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <SourceBadge source={stats.source} />
+            </div>
+          }
+        >
           <div className="flex items-center gap-3">
             <div className="relative w-[140px] h-[140px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -866,11 +746,17 @@ export function OrdenesPage() {
               })}
             </div>
           </div>
+          {stats.windowClamped && <ClampNotice />}
         </Panel>
 
         <Panel
           title="Aging de órdenes"
-          action={<span className="text-[11px] text-muted-foreground">Pending · In progress</span>}
+          action={
+            <div className="flex items-center gap-2">
+              <TemporalBadge value={live()} />
+              <span className="text-[11px] text-muted-foreground">Pending · In progress</span>
+            </div>
+          }
         >
           <div className="space-y-2.5 mt-1">
             {agingBuckets.map((a) => {
@@ -891,13 +777,27 @@ export function OrdenesPage() {
           </div>
         </Panel>
 
-        <Panel className="self-start" title="Tasa de cumplimiento">
+        <Panel
+          className="self-start"
+          title="Tasa de cumplimiento"
+          action={
+            <div className="flex items-center gap-2">
+              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <SourceBadge source={stats.source} />
+            </div>
+          }
+        >
           <div className="flex flex-col items-center justify-center py-4">
-            <span className="text-3xl font-bold">{cumplimiento.pct}%</span>
+            <span className="text-3xl font-bold">
+              {stats.compliancePct !== null ? `${stats.compliancePct}%` : "—"}
+            </span>
             <span className="text-[11px] mt-1 text-muted-foreground">
-              Completadas vs canceladas
+              {stats.compliancePct !== null
+                ? "Completadas vs canceladas"
+                : "Sin completadas ni canceladas en el período"}
             </span>
           </div>
+          {stats.windowClamped && <ClampNotice />}
         </Panel>
       </div>
 
@@ -909,6 +809,7 @@ export function OrdenesPage() {
           subtitle={`${filteredTable.length} resultados`}
           action={
             <div className="flex items-center gap-2 flex-wrap">
+              <TemporalBadge value={live()} />
               <TableTabs value={tableTab} onChange={setTableTab} />
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -1029,7 +930,12 @@ export function OrdenesPage() {
         <Panel
           className="self-start"
           title="Órdenes por hora"
-          action={<PeriodLabelView value={period} range={customRange} />}
+          action={
+            <div className="flex items-center gap-2">
+              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <SourceBadge source={stats.source} />
+            </div>
+          }
         >
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -1055,6 +961,7 @@ export function OrdenesPage() {
               </LineChart>
             </ResponsiveContainer>
           </div>
+          {stats.windowClamped && <ClampNotice />}
         </Panel>
       </div>
 
@@ -1065,7 +972,7 @@ export function OrdenesPage() {
           title="Histórico de órdenes"
           action={
             <div className="flex items-center gap-2">
-              <PeriodLabelView value={period} range={customRange} />
+              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
               <button className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-border bg-secondary/40 hover:bg-secondary/60">
                 <Download className="w-3 h-3" />
                 Exportar
@@ -1090,7 +997,7 @@ export function OrdenesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredHist.map((h) => (
+                {pagedHist.map((h) => (
                   <tr key={h.orden} className="border-b border-border/50 hover:bg-secondary/30">
                     <td className="py-3 px-2 text-[11px] text-muted-foreground whitespace-nowrap">
                       {h.fecha}
@@ -1120,12 +1027,21 @@ export function OrdenesPage() {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={histPage}
+            totalPages={histTotalPages}
+            onPageChange={setHistPage}
+            from={histFrom}
+            to={histTo}
+            total={histTotal}
+            itemLabel="órdenes"
+          />
         </Panel>
 
         <Panel
           className="self-start"
           title="Órdenes por prioridad"
-          action={<PeriodLabelView value={period} range={customRange} />}
+          action={<TemporalBadge value={live()} />}
         >
           <div className="flex items-center gap-3">
             <div className="relative w-[140px] h-[140px]">
@@ -1170,6 +1086,7 @@ export function OrdenesPage() {
               })}
             </div>
           </div>
+          {stats.windowClamped && <ClampNotice />}
         </Panel>
       </div>
     </div>
@@ -1217,6 +1134,8 @@ function KpiCard({
   tone,
   positive,
   neutral,
+  source = "live",
+  temporal,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -1225,6 +1144,8 @@ function KpiCard({
   tone: string;
   positive?: boolean;
   neutral?: boolean;
+  source?: DataSource;
+  temporal: Temporality;
 }) {
   const toneCls: Record<string, string> = {
     primary: "text-primary bg-primary/10",
@@ -1234,13 +1155,19 @@ function KpiCard({
   };
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <div
-          className={`w-7 h-7 rounded-md flex items-center justify-center ${toneCls[tone] ?? "text-primary bg-primary/10"}`}
-        >
-          <Icon className="w-3.5 h-3.5" />
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <div
+            className={`w-7 h-7 rounded-md flex items-center justify-center ${toneCls[tone] ?? "text-primary bg-primary/10"}`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+          </div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
         </div>
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        <div className="flex items-center gap-1.5">
+          <TemporalBadge value={temporal} />
+          <SourceBadge source={source} />
+        </div>
       </div>
       <p className="text-2xl font-bold">{value}</p>
       <p
@@ -1257,6 +1184,9 @@ function KpiCard({
 
 function PriorityBadge({ p }: { p: Priority }) {
   const map: Record<Priority, string> = {
+    // Urgente lleva el destructive sólido; alta baja a contorno para que se
+    // lean como dos niveles distintos y no como el mismo rojo repetido.
+    urgente: "border-destructive bg-destructive/20 text-destructive font-semibold",
     alta: "border-destructive/30 bg-destructive/10 text-destructive",
     media: "border-warning/30 bg-warning/10 text-warning",
     baja: "border-border bg-secondary text-muted-foreground",
@@ -1310,12 +1240,18 @@ function TableTabs({
   );
 }
 
-function PeriodLabelView({ value, range }: { value: PeriodId; range?: DateRange }) {
+/**
+ * Aviso de que un panel de `useOrderStats` muestra menos días de los pedidos.
+ *
+ * `orders` en modo agregado no admite más de 92 días por consulta (aunque el
+ * histórico real cubre un año). Sin este cartel, un rango de 5 meses que se
+ * recorta a 3 se lee como que no hay datos más viejos, que es falso.
+ */
+function ClampNotice() {
   return (
-    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-      <CalendarIcon className="w-3 h-3" />
-      {periodLabel(value, range)}
-    </span>
+    <p className="text-[10px] text-muted-foreground mt-2">
+      Recortado a 92 días: una consulta de órdenes no puede abarcar más.
+    </p>
   );
 }
 
