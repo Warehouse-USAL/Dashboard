@@ -4,9 +4,11 @@ import {
   avgPoints,
   byLabel,
   formatDuration,
+  formatInstant,
   metricsWindow,
   mtbfSeconds,
   mttrSeconds,
+  stepToSeconds,
   sumPoints,
   type Series,
 } from "./metrics-api";
@@ -115,6 +117,35 @@ describe("byLabel", () => {
       "vehicle_id",
     );
     expect([...map.keys()]).toEqual(["VHC-001", "VHC-002"]);
+  });
+});
+
+describe("stepToSeconds", () => {
+  it("convierte los pasos que usa el hook", () => {
+    expect(stepToSeconds("1h")).toBe(3600);
+    expect(stepToSeconds("6h")).toBe(21_600);
+    expect(stepToSeconds("1d")).toBe(86_400);
+    expect(stepToSeconds("5m")).toBe(300);
+  });
+
+  it("cae a una hora si el paso es ilegible, en vez de dar NaN", () => {
+    // Un NaN acá propagaría a una división y dejaría el gráfico de actividad
+    // vacío sin ningún error visible.
+    expect(stepToSeconds("basura")).toBe(3600);
+  });
+});
+
+describe("formatInstant", () => {
+  const t = Math.floor(Date.UTC(2026, 8, 6, 15, 37, 0) / 1000);
+
+  it("con paso diario no muestra la hora", () => {
+    // Repetir "03:37 p.m." en cada tick de un gráfico de 30 días satura el eje
+    // sin informar nada.
+    expect(formatInstant(t, 86_400)).not.toMatch(/:/);
+  });
+
+  it("con paso horario sí muestra la hora", () => {
+    expect(formatInstant(t, 3600)).toMatch(/:/);
   });
 });
 

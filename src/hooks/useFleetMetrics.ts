@@ -7,8 +7,10 @@ import {
   byLabel,
   metricsQuery,
   metricsWindow,
+  formatInstant,
   mtbfSeconds,
   mttrSeconds,
+  stepToSeconds,
   sumPoints,
   type MetricsResult,
   type Series,
@@ -183,7 +185,9 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
         filters: oWindow.filters,
         group_by: [{ field: "created_at", bucket: "hour", as: "hour" }],
         aggregates: [{ op: "count", as: "orders" }],
-        size: 500,
+        // Una ventana de 30 días tiene 720 horas; 1000 es el tope del backend en
+        // modo agregado. Con 500 podríamos perder buckets en un almacén activo.
+        size: 1000,
       }),
     refetchInterval: 30_000,
   });
@@ -278,20 +282,39 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
       pct: paretoTotal > 0 ? (b.failures / paretoTotal) * 100 : 0,
     }));
 
-    // Actividad: rovers activos (métricas) contra órdenes creadas (Mongo). Los
-    // buckets de órdenes vienen en hora local de Buenos Aires, sin zona; se
-    // parsean como local para que no se corran tres horas contra la serie.
-    const ordersAtHour = new Map(
-      (ordersByHour.data?.items ?? []).map((r) => [localHourToEpoch(r.hour), r.orders]),
-    );
-    const activity: ActivityPoint[] = (activeSeries[0]?.points ?? []).map(([t, rovers]) => ({
+    // Actividad: rovers activos (métricas) contra órdenes creadas (Mongo).
+    //
+    // Las dos fuentes vienen con granularidad distinta y hay que reconciliarlas:
+    // la serie usa el `step` (que con ventanas largas es de 6h o 1d) mientras que
+    // el backend sólo bucketea fechas por hour/day/month, así que pedimos la más
+    // fina (hora) y sumamos acá. Antes esto matcheaba por hora exacta contra un
+    // punto diario, y cada punto levantaba las órdenes de UNA hora de las 24 —
+    // el gráfico mostraba una fracción de la actividad real.
+    //
+    // Los buckets vienen como "2026-08-01T19:00:00" en hora local de Buenos
+    // Aires, sin zona; se parsean como local para que no se corran tres horas.
+    const points = activeSeries[0]?.points ?? [];
+    const stepSeconds = stepToSeconds(step);
+    const firstT = points[0]?.[0];
+    const ordersByPoint = new Map<number, number>();
+    if (firstT !== undefined) {
+      for (const row of ordersByHour.data?.items ?? []) {
+        const t = localHourToEpoch(row.hour);
+        if (t < firstT) continue; // fuera del rango que grafica la serie
+        // Los puntos están equiespaciados por `step`, así que el índice sale de
+        // una división en vez de buscar el intervalo que lo contiene.
+        const pointT = points[Math.floor((t - firstT) / stepSeconds)]?.[0];
+        if (pointT !== undefined) {
+          ordersByPoint.set(pointT, (ordersByPoint.get(pointT) ?? 0) + row.orders);
+        }
+      }
+    }
+
+    const activity: ActivityPoint[] = points.map(([t, rovers]) => ({
       t,
-      label: new Date(t * 1000).toLocaleTimeString("es-AR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      label: formatInstant(t, stepSeconds),
       rovers,
-      orders: ordersAtHour.get(nearestHour(t)) ?? 0,
+      orders: ordersByPoint.get(t) ?? 0,
     }));
 
     const metricsSource = combineSources([failures.data, pareto.data, inError.data, active.data]);
@@ -306,8 +329,16 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
       vehicleIds: [...failuresByVehicle.keys()].sort(),
       paretoBars,
       activity,
-      /** True cuando la ventana pedida excedía la retención y se recortó a 30 días. */
+      /**
+       * True cuando el período elegido excedía lo que una consulta puede abarcar
+       * y se recortó. Los gráficos muestran menos días de los pedidos, así que
+       * la página TIENE que decirlo: si no, se lee como que no hay datos viejos.
+       */
       clampedToRetention: mWindow.clamped,
+      /** Días que los gráficos de flota terminan mostrando, ya recortados. */
+      shownDays: Math.round(mWindow.seconds / 86_400),
+      /** Paso de las series; el eje de tiempo ajusta su formato según esto. */
+      stepSeconds: stepToSeconds(step),
       windowSeconds: mWindow.seconds,
       metricsSource,
       ordersSource,
@@ -328,6 +359,7 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     ordersByHour.isError,
     mWindow.seconds,
     mWindow.clamped,
+    step,
   ]);
 }
 
@@ -359,8 +391,4 @@ function averageOrNull(values: Array<number | null>): number | null {
  */
 function localHourToEpoch(bucket: string): number {
   return Math.floor(new Date(bucket).getTime() / 1000);
-}
-
-function nearestHour(epochSeconds: number): number {
-  return Math.floor(epochSeconds / 3600) * 3600;
 }

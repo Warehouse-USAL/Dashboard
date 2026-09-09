@@ -29,8 +29,11 @@ import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
+import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
+import { live, period as periodTemporal } from "@/lib/temporality";
+import type { Temporality } from "@/lib/temporality";
 import { useFleetMetrics, type FleetVehicleStats } from "@/hooks/useFleetMetrics";
-import { formatDuration } from "@/lib/metrics-api";
+import { formatDuration, formatInstant } from "@/lib/metrics-api";
 import type { DataSource } from "@/lib/data-source";
 import type { Rover, RoverState } from "@/lib/dashboard-data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -79,14 +82,19 @@ const SERIES_COLORS = [
   "oklch(0.65 0.05 250)",
 ];
 
-/** Los ejes de tiempo vienen en epoch de segundos, como los manda el backend. */
-function formatTick(epochSeconds: number): string {
-  return new Date(epochSeconds * 1000).toLocaleString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+/**
+ * Aviso de que los gráficos de flota muestran menos días de los que pediste.
+ *
+ * Una sola consulta de métricas no puede abarcar más de 31 días (el histórico sí
+ * existe: la retención es de ~400). Sin este cartel, elegir "90 días" y ver 30 se
+ * lee como que no hay datos más viejos, que es falso.
+ */
+function ClampNotice({ shown }: { shown: number }) {
+  return (
+    <p className="text-[10px] text-muted-foreground mt-3">
+      Mostrando los últimos {shown} días: una consulta de métricas no puede abarcar más de 31.
+    </p>
+  );
 }
 
 /**
@@ -123,6 +131,13 @@ function RoversPage() {
 
   const fleet = useFleetMetrics(period, customRange);
 
+  // El eje de tiempo se formatea según el paso de la serie: con puntos diarios,
+  // repetir la hora en cada tick no informa nada y satura el eje.
+  const tickFormatter = useMemo(
+    () => (t: number) => formatInstant(t, fleet.stepSeconds),
+    [fleet.stepSeconds],
+  );
+
   const filteredRovers = useMemo(
     () => rovers.filter((r) => stateFilter.has(r.state)),
     [rovers, stateFilter],
@@ -156,6 +171,7 @@ function RoversPage() {
       suffix: ` / ${totalRovers}`,
       sub: `${Math.round((activos / Math.max(totalRovers, 1)) * 100)}% del total`,
       tone: "primary" as const,
+      temporal: live(),
     },
     {
       icon: Activity,
@@ -163,6 +179,7 @@ function RoversPage() {
       value: `${disponibilidad}%`,
       sub: `${cargando} idle · ${detenidos} error`,
       tone: "success" as const,
+      temporal: live(),
     },
     {
       icon: Zap,
@@ -170,6 +187,7 @@ function RoversPage() {
       value: `${utilizacion}%`,
       sub: "Rovers con orden asignada",
       tone: "warning" as const,
+      temporal: live(),
     },
     {
       icon: Clock,
@@ -178,6 +196,7 @@ function RoversPage() {
       sub: fleet.fleetMtbf === null ? "Sin fallas en el período" : "Prom. entre fallas",
       tone: "info" as const,
       source: fleet.metricsSource,
+      temporal: periodTemporal(periodLabel(period, customRange)),
     },
     {
       icon: Wrench,
@@ -186,13 +205,14 @@ function RoversPage() {
       sub: fleet.fleetMttr === null ? "Sin fallas en el período" : "Prom. reparación",
       tone: "warning" as const,
       source: fleet.metricsSource,
+      temporal: periodTemporal(periodLabel(period, customRange)),
     },
   ];
 
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-end justify-end gap-2 flex-wrap text-xs">
+      <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 flex items-end justify-end gap-2 flex-wrap text-xs">
         <PeriodPicker
           value={period}
           onChange={setPeriod}
@@ -213,9 +233,12 @@ function RoversPage() {
       <Panel
         title="Estado de rovers"
         action={
-          <span className="text-[11px] text-muted-foreground">
-            {filteredRovers.length} de {totalRovers}
-          </span>
+          <div className="flex items-center gap-2">
+            <TemporalBadge value={live()} />
+            <span className="text-[11px] text-muted-foreground">
+              {filteredRovers.length} de {totalRovers}
+            </span>
+          </div>
         }
       >
         <div className="overflow-x-auto">
@@ -285,7 +308,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.metricsSource} />
-              <PeriodLabelView value={period} range={customRange} />
+              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
             </div>
           }
         >
@@ -298,7 +321,7 @@ function RoversPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                   <XAxis
                     dataKey="t"
-                    tickFormatter={formatTick}
+                    tickFormatter={tickFormatter}
                     tick={{ fontSize: 10 }}
                     stroke="hsl(var(--muted-foreground))"
                   />
@@ -308,7 +331,7 @@ function RoversPage() {
                     stroke="hsl(var(--muted-foreground))"
                   />
                   <Tooltip
-                    labelFormatter={formatTick}
+                    labelFormatter={tickFormatter}
                     contentStyle={{
                       fontSize: 11,
                       background: "hsl(var(--card))",
@@ -331,6 +354,7 @@ function RoversPage() {
               </ResponsiveContainer>
             </div>
           )}
+          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
 
         <Panel
@@ -338,7 +362,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.metricsSource} />
-              <PeriodLabelView value={period} range={customRange} />
+              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
             </div>
           }
         >
@@ -372,6 +396,7 @@ function RoversPage() {
               «UNCATEGORIZED» son caídas sin código de error reportado, no una categoría de falla.
             </p>
           )}
+          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
 
         <Panel
@@ -379,7 +404,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.source} />
-              <PeriodLabelView value={period} range={customRange} />
+              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
             </div>
           }
         >
@@ -392,7 +417,7 @@ function RoversPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                   <XAxis
                     dataKey="t"
-                    tickFormatter={formatTick}
+                    tickFormatter={tickFormatter}
                     tick={{ fontSize: 10 }}
                     stroke="hsl(var(--muted-foreground))"
                   />
@@ -408,7 +433,7 @@ function RoversPage() {
                     stroke="hsl(var(--muted-foreground))"
                   />
                   <Tooltip
-                    labelFormatter={formatTick}
+                    labelFormatter={tickFormatter}
                     contentStyle={{
                       fontSize: 11,
                       background: "hsl(var(--card))",
@@ -447,6 +472,7 @@ function RoversPage() {
             «Rovers activos» es el promedio de rovers ocupados en cada intervalo, por eso puede
             tener decimales.
           </p>
+          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
       </div>
 
@@ -527,6 +553,7 @@ function KpiCard({
   sub,
   tone,
   source = "live",
+  temporal,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -535,6 +562,7 @@ function KpiCard({
   sub: string;
   tone: string;
   source?: DataSource;
+  temporal: Temporality;
 }) {
   const toneCls: Record<string, string> = {
     primary: "text-primary bg-primary/10",
@@ -550,7 +578,10 @@ function KpiCard({
         >
           <Icon className="w-4 h-4" />
         </div>
-        <SourceBadge source={source} />
+        <div className="flex flex-col items-end gap-1">
+          <TemporalBadge value={temporal} />
+          <SourceBadge source={source} />
+        </div>
       </div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="text-xl font-bold mt-0.5">
@@ -581,15 +612,6 @@ function LegendDot({ color, label }: { color: string; label: string }) {
     <span className="flex items-center gap-1.5">
       <span className={`w-2 h-2 rounded-full ${color}`} />
       {label}
-    </span>
-  );
-}
-
-function PeriodLabelView({ value, range }: { value: PeriodId; range?: DateRange }) {
-  return (
-    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-      <CalendarIcon className="w-3 h-3" />
-      {periodLabel(value, range)}
     </span>
   );
 }
@@ -781,8 +803,8 @@ function ProductividadPorRover({
       title="Productividad por rover"
       action={
         <div className="flex items-center gap-2">
+          <TemporalBadge value={periodTemporal(periodLabel(period, range))} />
           <SourceBadge source={source} />
-          <PeriodLabelView value={period} range={range} />
         </div>
       }
     >

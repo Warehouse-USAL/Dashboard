@@ -38,6 +38,11 @@ import {
 } from "@/hooks/useInventoryMetrics";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
+import { SourceBadge } from "@/components/dashboard/SourceBadge";
+import type { DataSource } from "@/lib/data-source";
+import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
+import { live, period as periodTemporal, riskWindow } from "@/lib/temporality";
+import type { Temporality } from "@/lib/temporality";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -359,12 +364,6 @@ function InventarioPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <PeriodPicker
-            value={period}
-            onChange={setPeriod}
-            range={customRange}
-            onRangeChange={setCustomRange}
-          />
           <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-secondary/40">
             <Download className="w-3.5 h-3.5" /> Exportar
           </button>
@@ -382,6 +381,7 @@ function InventarioPage() {
           value={fmtMoney(kpis.totalValue)}
           sub="stock disponible × precio"
           tone="primary"
+          temporal={live()}
         />
         <KpiCard
           icon={AlertTriangle}
@@ -389,6 +389,7 @@ function InventarioPage() {
           value={kpis.skusAtRisk.toString()}
           sub={`cobertura < 5 días (${riskWindowDays}d)`}
           tone="warning"
+          temporal={riskWindow(riskWindowDays)}
         />
         <KpiCard
           icon={PackageX}
@@ -396,6 +397,7 @@ function InventarioPage() {
           value={kpis.skusBreached.toString()}
           sub="stock disponible = 0"
           tone="danger"
+          temporal={riskWindow(riskWindowDays)}
         />
         <KpiCard
           icon={Clock}
@@ -403,6 +405,7 @@ function InventarioPage() {
           value={`${kpis.avgCoverage.toFixed(1)}d`}
           sub={`días de stock restante (${riskWindowDays}d)`}
           tone="info"
+          temporal={riskWindow(riskWindowDays)}
         />
         <KpiCard
           icon={TrendingDown}
@@ -410,6 +413,7 @@ function InventarioPage() {
           value={fmtMoney(kpis.deadStockValue)}
           sub={`sin órdenes en ${riskWindowDays} días`}
           tone="muted"
+          temporal={riskWindow(riskWindowDays)}
         />
       </div>
 
@@ -524,7 +528,10 @@ function InventarioPage() {
       {/* ── Row 2: Distribution + Occupancy + Top Rotación ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Donut — 4-way status */}
-        <Panel title="Distribución por estado">
+        <Panel
+          title="Distribución por estado"
+          action={<TemporalBadge value={riskWindow(riskWindowDays)} />}
+        >
           <div className="flex items-center gap-3">
             <div className="relative w-[140px] h-[140px] shrink-0">
               <ResponsiveContainer width="100%" height="100%">
@@ -571,7 +578,11 @@ function InventarioPage() {
         </Panel>
 
         {/* Zone occupancy */}
-        <Panel title="Ocupación por zona" subtitle="Stock disponible / capacidad">
+        <Panel
+          title="Ocupación por zona"
+          subtitle="Stock disponible / capacidad"
+          action={<TemporalBadge value={live()} />}
+        >
           <div className="space-y-2.5">
             {occupancy.map((o) => (
               <div key={o.zone} className="space-y-1">
@@ -594,10 +605,24 @@ function InventarioPage() {
           </div>
         </Panel>
 
-        {/* Top rotación */}
+        {/* Top rotación — único panel de la página que usa el período elegido,
+            así que es el único que necesita el picker; por eso vive acá y no
+            en el header general (el resto de los datos son en vivo o
+            dependen de la Ventana de riesgo de Configuración, no de esto). */}
         <Panel
           title="Top rotación"
           subtitle={`Mayor demanda diaria · ${periodLabel(period, customRange)}`}
+          action={
+            <div className="flex items-center gap-2">
+              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <PeriodPicker
+                value={period}
+                onChange={setPeriod}
+                range={customRange}
+                onRangeChange={setCustomRange}
+              />
+            </div>
+          }
         >
           <div className="space-y-2">
             {topRotacion.map((p, i) => {
@@ -631,7 +656,12 @@ function InventarioPage() {
       <Panel
         title="Movimientos de stock"
         subtitle="Entradas vs salidas · datos sintéticos"
-        action={<PeriodLabelView value={period} range={customRange} />}
+        action={
+          <div className="flex items-center gap-2">
+            <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+            <SourceBadge source="mock" />
+          </div>
+        }
       >
         <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -665,9 +695,12 @@ function InventarioPage() {
         title="Movimientos recientes"
         subtitle={`${movimientos.length} movimiento${movimientos.length === 1 ? "" : "s"} · datos sintéticos`}
         action={
-          <button className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-md border border-border hover:bg-secondary/40">
-            <Download className="w-3 h-3" /> Exportar
-          </button>
+          <div className="flex items-center gap-2">
+            <SourceBadge source="mock" />
+            <button className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-md border border-border hover:bg-secondary/40">
+              <Download className="w-3 h-3" /> Exportar
+            </button>
+          </div>
         }
       >
         <div className="overflow-x-auto -mx-1">
@@ -854,12 +887,16 @@ function KpiCard({
   value,
   sub,
   tone,
+  temporal,
+  source = "live",
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   sub: string;
   tone: "primary" | "warning" | "danger" | "info" | "muted";
+  temporal: Temporality;
+  source?: DataSource;
 }) {
   const toneCls: Record<string, string> = {
     primary: "text-primary bg-primary/10",
@@ -870,13 +907,19 @@ function KpiCard({
   };
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <div className={`w-7 h-7 rounded-md flex items-center justify-center ${toneCls[tone]}`}>
-          <Icon className="w-3.5 h-3.5" />
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <div className={`w-7 h-7 rounded-md flex items-center justify-center ${toneCls[tone]}`}>
+            <Icon className="w-3.5 h-3.5" />
+          </div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground leading-tight">
+            {label}
+          </p>
         </div>
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground leading-tight">
-          {label}
-        </p>
+        <div className="flex flex-col items-end gap-1">
+          <TemporalBadge value={temporal} />
+          <SourceBadge source={source} />
+        </div>
       </div>
       <p className="text-2xl font-bold tabular-nums">{value}</p>
       <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>
@@ -1040,15 +1083,6 @@ function CheckRow({ on, label, onClick }: { on: boolean; label: string; onClick:
       </span>
       {label}
     </button>
-  );
-}
-
-function PeriodLabelView({ value, range }: { value: PeriodId; range?: DateRange }) {
-  return (
-    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-      <CalendarIcon className="w-3 h-3" />
-      {periodLabel(value, range)}
-    </span>
   );
 }
 

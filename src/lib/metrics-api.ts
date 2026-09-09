@@ -162,6 +162,33 @@ export function mttrSeconds(
   return failures > 0 ? (errorFraction * windowSeconds) / failures : null;
 }
 
+/** `"1h"`, `"6h"`, `"1d"` → segundos. Sólo las unidades que acepta `step`. */
+export function stepToSeconds(step: string): number {
+  const match = /^(\d+)([smhd])$/.exec(step.trim());
+  if (!match) return 3600;
+  const unit = { s: 1, m: 60, h: 3600, d: 86_400 }[match[2]] ?? 3600;
+  return Number(match[1]) * unit;
+}
+
+/**
+ * Etiqueta de un instante, con el detalle que el paso justifica.
+ *
+ * Con paso diario la hora es ruido: repetir "03:37 p.m." en cada tick de un
+ * gráfico de 30 días satura el eje sin informar nada.
+ */
+export function formatInstant(epochSeconds: number, stepSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  if (stepSeconds >= 86_400) {
+    return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+  }
+  return d.toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** Segundos → "48.6 h" / "18.7 min" / "45 s", para mostrar en un KPI. */
 export function formatDuration(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds)) return "—";

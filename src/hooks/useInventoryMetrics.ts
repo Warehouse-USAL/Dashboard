@@ -20,6 +20,8 @@ export type EnrichedProduct = {
   priceCents: number;
   currency: string;
   dailyDemand: number;
+  /** Unidades totales pedidas en el período — no el promedio diario. */
+  totalUnits: number;
   coverageDays: number;
   stockValue: number;
   reqNeto: number;
@@ -231,6 +233,7 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
         priceCents: p.priceCents,
         currency: p.currency,
         dailyDemand,
+        totalUnits: demandInfo?.totalQty ?? 0,
         coverageDays,
         stockValue,
         reqNeto,
