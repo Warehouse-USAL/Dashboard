@@ -56,7 +56,10 @@ const PERIOD_OPTIONS = [
 type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"];
 type DataPeriodId = Exclude<PeriodId, "custom">;
 
-type Priority = "alta" | "media" | "baja";
+// Las cuatro de OrderPriority en el backend (LOW/MEDIUM/HIGH/URGENT), traducidas
+// por mapOrderPriority. Antes eran tres porque el backend no mandaba prioridad y
+// todas caían en "media".
+type Priority = "urgente" | "alta" | "media" | "baja";
 type OrderState = "pending" | "in_progress" | "completed" | "cancelled";
 
 const STATE_LABELS: Record<OrderState, string> = {
@@ -75,6 +78,7 @@ const LEGACY_STATE_MAP: Record<string, OrderState> = {
 };
 
 const PRIORITY_FILTERS: { id: Priority; label: string }[] = [
+  { id: "urgente", label: "Urgente" },
   { id: "alta", label: "Alta" },
   { id: "media", label: "Media" },
   { id: "baja", label: "Baja" },
@@ -538,7 +542,10 @@ const STATE_COLOR: Record<OrderState, string> = {
   cancelled: COLORS.red,
 };
 const PRIORITY_COLOR: Record<Priority, string> = {
-  alta: COLORS.red,
+  // Urgente y alta comparten la mitad caliente de la escala pero se distinguen:
+  // si urgente reusara el rojo de alta, agregar la categoría no serviría de nada.
+  urgente: COLORS.red,
+  alta: COLORS.orange,
   media: COLORS.amber,
   baja: COLORS.muted,
 };
@@ -712,20 +719,23 @@ export function OrdenesPage() {
     };
   }, [dateFilteredOrders]);
 
-  // Real priority distribution from API, bounded by período
-  const prioridad = useMemo(
-    () => ({
-      alta: dateFilteredOrders.filter((o) => o.priority?.toLowerCase() === "alta").length,
-      media: dateFilteredOrders.filter(
-        (o) => !["alta", "baja"].includes(o.priority?.toLowerCase() ?? ""),
-      ).length,
-      baja: dateFilteredOrders.filter((o) => o.priority?.toLowerCase() === "baja").length,
-    }),
-    [dateFilteredOrders],
-  );
+  // Distribución real por prioridad, acotada por período.
+  //
+  // Se cuenta por igualdad contra cada categoría en vez de tratar a "media" como
+  // el cajón de todo lo que no es alta ni baja: con ese criterio, una prioridad
+  // que no supiéramos mapear se sumaría a "media" en silencio en vez de notarse.
+  const prioridad = useMemo(() => {
+    const counts: Record<Priority, number> = { urgente: 0, alta: 0, media: 0, baja: 0 };
+    for (const o of dateFilteredOrders) {
+      const p = o.priority?.toLowerCase() as Priority | undefined;
+      if (p && p in counts) counts[p] += 1;
+    }
+    return counts;
+  }, [dateFilteredOrders]);
 
-  const prioTotal = prioridad.alta + prioridad.media + prioridad.baja;
+  const prioTotal = prioridad.urgente + prioridad.alta + prioridad.media + prioridad.baja;
   const prioData = [
+    { name: "Urgente", key: "urgente" as Priority, value: prioridad.urgente },
     { name: "Alta", key: "alta" as Priority, value: prioridad.alta },
     { name: "Media", key: "media" as Priority, value: prioridad.media },
     { name: "Baja", key: "baja" as Priority, value: prioridad.baja },
@@ -1257,6 +1267,9 @@ function KpiCard({
 
 function PriorityBadge({ p }: { p: Priority }) {
   const map: Record<Priority, string> = {
+    // Urgente lleva el destructive sólido; alta baja a contorno para que se
+    // lean como dos niveles distintos y no como el mismo rojo repetido.
+    urgente: "border-destructive bg-destructive/20 text-destructive font-semibold",
     alta: "border-destructive/30 bg-destructive/10 text-destructive",
     media: "border-warning/30 bg-warning/10 text-warning",
     baja: "border-border bg-secondary text-muted-foreground",

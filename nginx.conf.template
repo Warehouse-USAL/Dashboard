@@ -5,7 +5,9 @@ server {
     index index.html;
 
     # REST API proxy
-    location ~ ^/(auth|vehicles|orders|products) {
+    # `warehouse` faltaba: getAllPositions() pega a /warehouse/zones y en
+    # producción caía en el fallback de SPA, devolviendo el index.html.
+    location ~ ^/(auth|vehicles|orders|products|warehouse|query|metrics) {
         proxy_pass ${BACKEND_URL};
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
