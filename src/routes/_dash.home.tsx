@@ -37,7 +37,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getAllPositions } from "@/lib/api";
 import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
-import { useOrders } from "@/hooks/useOrders";
+import { useActiveOrders, useOrders } from "@/hooks/useOrders";
 import { useProducts } from "@/hooks/useProducts";
 import { useInventoryMetrics } from "@/hooks/useInventoryMetrics";
 import { useFleetMetrics } from "@/hooks/useFleetMetrics";
@@ -87,6 +87,12 @@ function HomePage() {
     total: roversTotal,
   } = usePagedList(rovers, 10);
   const { data: orders } = useOrders();
+  // Sólo para "Órdenes en proceso": useOrders() sin status trae una página de
+  // 50 sin orden garantizado, y una orden activa nueva puede quedar fuera. Ver
+  // getActiveOrders() en lib/api.ts. Cumplimiento/totalOrders más abajo siguen
+  // con `orders` a propósito — necesitan TODOS los estados de un período, no
+  // sólo activas, y ese es un problema más grande fuera de este fix.
+  const { data: activeOrders } = useActiveOrders();
   const { data: products } = useProducts();
   const [period, setPeriod] = useState<PeriodId>("7d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
@@ -123,7 +129,7 @@ function HomePage() {
     [enrichedProducts],
   );
 
-  const inProcess = orders.filter((o) => o.state === "en proceso").length;
+  const inProcess = activeOrders.filter((o) => o.state === "en proceso").length;
   const totalOrders = orders.length;
 
   // Mismo cálculo que "Cumplimiento" en Órdenes (completadas vs canceladas,

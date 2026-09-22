@@ -381,6 +381,90 @@ export async function getOrders(
   }
 }
 
+// ─── Active orders (pending + in_progress) ─────────────────────────────────────
+// GET /orders sin status trae una sola página de 50 filas SIN orden garantizado
+// (OrderRepository.findByFilters pagina sobre Mongo sin Sort). Con 700+ órdenes
+// de seed, casi todas completed/cancelled, una orden activa nueva puede quedar
+// fuera de esa página y no aparecer nunca en la Cola — es el bug real que
+// motivó esto. Como el backend sólo acepta un status por request, se pide cada
+// uno por separado y se recorren TODAS sus páginas: en la práctica las órdenes
+// activas son un puñado, así que esto no dispara más de una página por status.
+
+interface BackendPagination {
+  page: number;
+  size: number;
+  total_elements: number;
+  total_pages: number;
+}
+
+interface BackendOrdersPage {
+  orders?: BackendOrder[];
+  content?: BackendOrder[];
+  pagination?: BackendPagination;
+}
+
+const ACTIVE_ORDERS_PAGE_SIZE = 50;
+// Salvavidas, no un valor esperado: 8 páginas × 50 = 400 órdenes de UN status.
+// Las activas reales son un puñado, así que esto está para no quedar pidiendo
+// páginas para siempre si `total_pages` viniera roto, no para usarse en serio.
+const MAX_ORDER_PAGES = 8;
+
+async function fetchOrdersPage(status: string, page: number): Promise<BackendOrdersPage> {
+  const params = new URLSearchParams({
+    status,
+    page: page.toString(),
+    size: ACTIVE_ORDERS_PAGE_SIZE.toString(),
+  });
+  const res = await apiFetch(`/orders?${params.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as BackendOrdersPage;
+}
+
+async function fetchAllOrdersByStatus(status: string): Promise<BackendOrder[]> {
+  const first = await fetchOrdersPage(status, 0);
+  const firstList = first.orders ?? first.content ?? [];
+  const totalPages = first.pagination?.total_pages ?? 1;
+  if (totalPages <= 1) return firstList;
+
+  const pagesToFetch = Math.min(totalPages, MAX_ORDER_PAGES);
+  if (totalPages > MAX_ORDER_PAGES) {
+    console.error(
+      `[api] fetchAllOrdersByStatus(${status}): el backend reporta ${totalPages} páginas, se cortó en ${MAX_ORDER_PAGES}`,
+    );
+  }
+
+  const rest = await Promise.all(
+    Array.from({ length: pagesToFetch - 1 }, (_, i) => fetchOrdersPage(status, i + 1)),
+  );
+
+  // Sin Sort en el backend, una orden que entra/sale de este status entre el
+  // fetch de una página y la siguiente puede correr el offset y repetir una
+  // fila ya vista — deduplicar por id evita mostrarla dos veces en la Cola.
+  const merged = new Map<string, BackendOrder>();
+  for (const o of [firstList, ...rest.map((r) => r.orders ?? r.content ?? [])].flat()) {
+    merged.set(o.id, o);
+  }
+  return [...merged.values()];
+}
+
+/**
+ * Órdenes activas (pending + in_progress) para la Cola, el Aging y el donut de
+ * prioridad — a diferencia de getOrders() sin status, ésta recorre todas las
+ * páginas de cada uno de los dos estados en vez de conformarse con la primera.
+ */
+export async function getActiveOrders(): Promise<FrontendOrder[]> {
+  try {
+    const [pending, inProgress] = await Promise.all([
+      fetchAllOrdersByStatus("pending"),
+      fetchAllOrdersByStatus("in_progress"),
+    ]);
+    return [...pending, ...inProgress].map(mapOrder);
+  } catch (err) {
+    console.error("[api] getActiveOrders → mock:", err);
+    return mockOrders.map((o) => ({ ...o }));
+  }
+}
+
 // Same rationale as getOrders() above: request the backend's hard cap (50)
 // by default instead of its default page size (10).
 export async function getProducts(size: number = 50): Promise<FrontendProduct[]> {
