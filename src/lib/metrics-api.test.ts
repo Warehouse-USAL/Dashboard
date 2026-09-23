@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+
 import {
   MAX_METRICS_WINDOW_DAYS,
   avgPoints,
   byLabel,
   formatDuration,
   formatInstant,
+  metricsQuery,
   metricsWindow,
   mtbfSeconds,
   mttrSeconds,
@@ -12,6 +14,16 @@ import {
   sumPoints,
   type Series,
 } from "./metrics-api";
+
+import { http, HttpResponse } from "msw";
+import { server } from "@/test/msw/server";
+import { clearStoredToken, setStoredToken } from "./api";
+
+function setTestRole(role: string) {
+  clearStoredToken();
+  sessionStorage.setItem("wh_role", role);
+  setStoredToken("token-de-prueba");
+}
 
 const series = (points: Array<[number, number]>, labels: Record<string, string> = {}): Series => ({
   labels,
@@ -159,5 +171,169 @@ describe("formatDuration", () => {
   it("null y valores no finitos se muestran como guión, no como NaN", () => {
     expect(formatDuration(null)).toBe("—");
     expect(formatDuration(Infinity)).toBe("—");
+  });
+});
+describe("metricsQuery", () => {
+  it("devuelve forbidden si el rol no puede leer métricas de flota", async () => {
+    setTestRole("OPERATOR");
+
+    const result = await metricsQuery({
+      metric: "wh.vehicle.transitions",
+      from: "2026-09-06T00:00:00.000Z",
+      to: "2026-09-06T01:00:00.000Z",
+      step: "1h",
+      agg: "increase",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "forbidden",
+      clamped: false,
+    });
+  });
+
+  it("devuelve unavailable cuando VictoriaMetrics responde 503", async () => {
+    setTestRole("DASHBOARD");
+
+    server.use(
+      http.post("*/metrics/query", () => {
+        return new HttpResponse(null, { status: 503 });
+      }),
+    );
+
+    const result = await metricsQuery({
+      metric: "wh.vehicle.transitions",
+      from: "2026-09-06T00:00:00.000Z",
+      to: "2026-09-06T01:00:00.000Z",
+      step: "1h",
+      agg: "increase",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "unavailable",
+      clamped: false,
+    });
+  });
+
+  it("devuelve forbidden cuando el backend responde 403", async () => {
+    setTestRole("DASHBOARD");
+
+    server.use(
+      http.post("*/metrics/query", () => {
+        return new HttpResponse(null, { status: 403 });
+      }),
+    );
+
+    const result = await metricsQuery({
+      metric: "wh.vehicle.transitions",
+      from: "2026-09-06T00:00:00.000Z",
+      to: "2026-09-06T01:00:00.000Z",
+      step: "1h",
+      agg: "increase",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "forbidden",
+      clamped: false,
+    });
+  });
+
+  it("devuelve error ante otro status HTTP", async () => {
+    setTestRole("DASHBOARD");
+
+    server.use(
+      http.post("*/metrics/query", () => {
+        return new HttpResponse(null, { status: 500 });
+      }),
+    );
+
+    const result = await metricsQuery({
+      metric: "wh.vehicle.transitions",
+      from: "2026-09-06T00:00:00.000Z",
+      to: "2026-09-06T01:00:00.000Z",
+      step: "1h",
+      agg: "increase",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "error",
+      clamped: false,
+    });
+  });
+
+  it("devuelve error si la petición lanza una excepción", async () => {
+    setTestRole("DASHBOARD");
+
+    server.use(
+      http.post("*/metrics/query", () => {
+        return HttpResponse.error();
+      }),
+    );
+
+    const result = await metricsQuery({
+      metric: "wh.vehicle.transitions",
+      from: "2026-09-06T00:00:00.000Z",
+      to: "2026-09-06T01:00:00.000Z",
+      step: "1h",
+      agg: "increase",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "error",
+      clamped: false,
+    });
+  });
+  it("devuelve la respuesta cuando las métricas llegan correctamente", async () => {
+    setTestRole("DASHBOARD");
+
+    server.use(
+      http.post("*/metrics/query", () => {
+        return HttpResponse.json({
+          metric: "wh.vehicle.transitions",
+          unit: "1",
+          step: "1h",
+          series: [
+            {
+              labels: { vehicle_id: "VHC-001" },
+              points: [
+                [1_788_000_000, 1],
+                [1_788_003_600, 2],
+              ],
+            },
+          ],
+        });
+      }),
+    );
+
+    const result = await metricsQuery({
+      metric: "wh.vehicle.transitions",
+      from: "2026-09-06T00:00:00.000Z",
+      to: "2026-09-06T01:00:00.000Z",
+      step: "1h",
+      agg: "increase",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      response: {
+        metric: "wh.vehicle.transitions",
+        unit: "1",
+        step: "1h",
+        series: [
+          {
+            labels: { vehicle_id: "VHC-001" },
+            points: [
+              [1_788_000_000, 1],
+              [1_788_003_600, 2],
+            ],
+          },
+        ],
+      },
+      clamped: false,
+    });
   });
 });
