@@ -630,12 +630,16 @@ function InventarioPage() {
               const pct = max > 0 ? Math.round((p.dailyDemand / max) * 100) : 0;
               return (
                 <div key={p.sku} className="space-y-0.5">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="flex items-center gap-2">
-                      <span className="text-muted-foreground w-3 tabular-nums">{i + 1}</span>
-                      <span className="font-mono font-semibold">{p.sku}</span>
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-muted-foreground w-3 tabular-nums shrink-0">
+                        {i + 1}
+                      </span>
+                      <span className="font-semibold truncate" title={p.name}>
+                        {p.name}
+                      </span>
                     </span>
-                    <span className="text-muted-foreground tabular-nums">
+                    <span className="text-muted-foreground tabular-nums shrink-0">
                       {fmtDemand(p.dailyDemand)} u/d
                     </span>
                   </div>
