@@ -146,7 +146,11 @@ it("envía correctamente los filtros al endpoint /orders", async () => {
 it("obtiene las órdenes del backend y las transforma al modelo del Dashboard", async () => {
   const result = await getOrders();
 
-  expect(result).toHaveLength(4);
+  // El fixture MSW tiene 59 órdenes (54 de relleno + una activa "enterrada"
+  // para reproducir el bug de Cola) y getOrders() pide una sola página de 50
+  // — el tope del backend. Lo que importa acá es cómo se traducen las 4
+  // órdenes conocidas del principio, no cuántas trae la primera página.
+  expect(result).toHaveLength(50);
 
   expect(result[0]).toMatchObject({
     id: "ORD-1001",
