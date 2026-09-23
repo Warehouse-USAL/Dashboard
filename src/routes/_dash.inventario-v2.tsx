@@ -170,7 +170,11 @@ function fmtCoverage(days: number): string {
 
 function fmtDemand(d: number): string {
   if (d < 0.01) return "—";
-  if (d < 1) return d.toFixed(1);
+  // 2 decimales, no 1: con 1 decimal, varios SKUs con demanda real distinta
+  // (0.53, 0.49, 0.47 u/d) redondeaban al mismo "0.5" en pantalla mientras la
+  // barra de "Top rotación" —que sí usa el valor sin redondear— se veía con
+  // largos distintos para el mismo número mostrado.
+  if (d < 1) return d.toFixed(2);
   return `${Math.round(d)}`;
 }
 
@@ -290,10 +294,12 @@ function InventarioPage() {
           cmp = a.available - b.available;
           break;
         case "dailyDemand":
-          cmp = a.dailyDemand - b.dailyDemand;
+          // Columna de la tabla — ventana de riesgo, no el período de abajo
+          // (ese es sólo para "Top rotación"). Ver EnrichedProduct.
+          cmp = a.riskDailyDemand - b.riskDailyDemand;
           break;
         case "coverageDays":
-          cmp = a.coverageDays - b.coverageDays;
+          cmp = a.riskCoverageDays - b.riskCoverageDays;
           break;
         case "reqNeto":
           cmp = a.reqNeto - b.reqNeto;
@@ -467,7 +473,7 @@ function InventarioPage() {
                   dir={sortDir}
                   onSort={toggleSort}
                   right
-                  title={`Calculado sobre el período seleccionado arriba (${periodLabel(period, customRange)})`}
+                  title={`Calculado sobre la ventana de riesgo configurada (${riskWindowDays}d), no sobre el período de "Top rotación"`}
                 >
                   Dem. diaria
                 </SortTh>
@@ -476,7 +482,7 @@ function InventarioPage() {
                   active={sortKey}
                   dir={sortDir}
                   onSort={toggleSort}
-                  title={`Calculado sobre el período seleccionado arriba (${periodLabel(period, customRange)})`}
+                  title={`Calculado sobre la ventana de riesgo configurada (${riskWindowDays}d), no sobre el período de "Top rotación"`}
                 >
                   Cobertura
                 </SortTh>
@@ -766,13 +772,17 @@ function InventarioPage() {
 // ─── ProductRow ───────────────────────────────────────────────────────────────
 
 function ProductRow({ p }: { p: EnrichedProduct }) {
-  const coverPct = p.coverageDays >= 9999 ? 100 : Math.min(100, (p.coverageDays / 30) * 100);
+  // Dem. diaria/Cobertura de la tabla van sobre la Ventana de riesgo
+  // (Configuración), no sobre el período de "Top rotación" — mismo criterio
+  // que ya usaba la columna "Estado".
+  const coverPct =
+    p.riskCoverageDays >= 9999 ? 100 : Math.min(100, (p.riskCoverageDays / 30) * 100);
   const coverTone =
-    p.coverageDays >= 9999
+    p.riskCoverageDays >= 9999
       ? "bg-muted-foreground/40"
-      : p.coverageDays < 5
+      : p.riskCoverageDays < 5
         ? "bg-destructive"
-        : p.coverageDays < 15
+        : p.riskCoverageDays < 15
           ? "bg-amber-500"
           : "bg-emerald-500";
 
@@ -788,7 +798,7 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
       </td>
       <td className="py-3 px-2 text-xs text-right tabular-nums font-semibold">{p.available}</td>
       <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
-        {fmtDemand(p.dailyDemand)}
+        {fmtDemand(p.riskDailyDemand)}
       </td>
       <td className="py-3 px-2">
         <div className="flex items-center gap-2">
@@ -796,7 +806,7 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
             <div className={`h-full ${coverTone}`} style={{ width: `${coverPct}%` }} />
           </div>
           <span className="text-[11px] tabular-nums text-muted-foreground whitespace-nowrap">
-            {fmtCoverage(p.coverageDays)}
+            {fmtCoverage(p.riskCoverageDays)}
           </span>
         </div>
       </td>

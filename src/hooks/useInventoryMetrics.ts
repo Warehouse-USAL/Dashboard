@@ -20,10 +20,18 @@ export type EnrichedProduct = {
   minimum: number;
   priceCents: number;
   currency: string;
+  /** Acotada al período elegido (picker de "Top rotación") — sólo para ese
+   *  panel y para "Top SKU"/"Top SKUs" de Home. La tabla usa riskDailyDemand. */
   dailyDemand: number;
   /** Unidades totales pedidas en el período — no el promedio diario. */
   totalUnits: number;
+  /** Acotada al período — ver dailyDemand. La tabla usa riskCoverageDays. */
   coverageDays: number;
+  /** Acotada a la Ventana de riesgo (Configuración) — lo que muestran las
+   *  columnas "Dem. diaria"/"Cobertura" de la tabla, igual que "Estado" y los
+   *  KPIs de riesgo. Independiente del período elegido abajo. */
+  riskDailyDemand: number;
+  riskCoverageDays: number;
   stockValue: number;
   reqNeto: number;
   lastOrderDate: string | null;
@@ -53,28 +61,24 @@ const MOCK_PRODUCTS_INIT: FrontendProduct[] = mockStock.map((s) => ({
 }));
 
 /**
- * Fila de `/query/orders` agregado: cantidad completada de un SKU en un día
- * puntual dentro de la ventana pedida. Agrupar por (sku, día) en el servidor
- * replica exactamente "unidades totales / cantidad de días con al menos un
- * pedido" sin traer las órdenes crudas — reemplaza el `getOrders("completed")`
- * que sólo veía la primera página de 50 (ver PLAN-fix-tope-50-post-cola.md).
+ * Fila de `/query/orders` agregado: unidades completadas de un SKU dentro de
+ * la ventana pedida — reemplaza el `getOrders("completed")` que sólo veía la
+ * primera página de 50 (ver PLAN-fix-tope-50-post-cola.md).
  */
-type SkuDayDemand = { sku: string; day: string; qty: number };
+type SkuDemand = { sku: string; qty: number };
 type SkuLastOrder = { sku: string; last_order: string | null };
 
-/** Junta filas (sku, día, qty) en total de unidades + cantidad de días
- *  distintos con pedido, por sku — la cuenta que antes hacía `demandMap`
- *  sobre órdenes crudas (un `Set<día>` por sku), ahora sobre filas ya
- *  agregadas en Mongo. */
-function summarizeDemand(rows: SkuDayDemand[]): Map<string, { totalQty: number; days: number }> {
-  const bySku = new Map<string, { totalQty: number; days: Set<string> }>();
-  for (const r of rows) {
-    const entry = bySku.get(r.sku) ?? { totalQty: 0, days: new Set<string>() };
-    entry.totalQty += r.qty;
-    entry.days.add(r.day);
-    bySku.set(r.sku, entry);
-  }
-  return new Map([...bySku].map(([sku, v]) => [sku, { totalQty: v.totalQty, days: v.days.size }]));
+/**
+ * "Unidades por día" se calcula sobre el TOTAL de días de la ventana, no sobre
+ * los días en los que hubo pedido. Dividir sólo por días activos infla la
+ * demanda de cualquier SKU que no se vende todos los días (que es casi
+ * todos) — 35 unidades en 90 días repartidas en 7 días activos daban "5 u/d"
+ * en vez de los 0.4 u/d reales, y esa cifra inflada subestimaba "Cobertura"
+ * (días de stock restantes) y podía marcar como "En riesgo" un SKU que en
+ * realidad no lo estaba. Decisión confirmada con el usuario.
+ */
+function dailyRate(totalQty: number, windowDays: number): number {
+  return windowDays > 0 ? totalQty / windowDays : 0;
 }
 
 /**
@@ -121,15 +125,11 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
   const demandQuery = (window: ReturnType<typeof ordersWindow>) => ({
     filters: [{ field: "status", op: "eq" as const, value: "COMPLETED" }, ...window.filters],
     unwind: "items",
-    group_by: [
-      { field: "items.sku", as: "sku" },
-      { field: "completed_at", bucket: "day" as const, as: "day" },
-    ],
+    group_by: [{ field: "items.sku", as: "sku" }],
     aggregates: [{ op: "sum" as const, field: "items.quantity", as: "qty" }],
-    // Peor caso: 24 productos × 92 días = 2208 filas si TODOS vendieran TODOS
-    // los días. En la práctica muy por debajo de eso (mismo margen que usa
-    // useOrderStats.ts para su bucket diario).
-    size: 1000,
+    // Una fila por SKU con pedidos en la ventana — con 24 productos hoy sobra
+    // por mucho margen incluso si el catálogo crece bastante.
+    size: 200,
   });
 
   const { data: periodDemand } = useQuery({
@@ -138,7 +138,7 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
       periodOrdersWindow.from.toISOString(),
       periodOrdersWindow.to.toISOString(),
     ],
-    queryFn: () => queryEntity<SkuDayDemand>("orders", demandQuery(periodOrdersWindow)),
+    queryFn: () => queryEntity<SkuDemand>("orders", demandQuery(periodOrdersWindow)),
     refetchInterval: 60_000,
   });
 
@@ -148,7 +148,7 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
       riskOrdersWindow.from.toISOString(),
       riskOrdersWindow.to.toISOString(),
     ],
-    queryFn: () => queryEntity<SkuDayDemand>("orders", demandQuery(riskOrdersWindow)),
+    queryFn: () => queryEntity<SkuDemand>("orders", demandQuery(riskOrdersWindow)),
     refetchInterval: 60_000,
   });
 
@@ -181,13 +181,13 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
 
     // Demand per SKU, bounded by the selected período — drives the returned
     // dailyDemand/coverageDays (table columns + Top rotación). Exploratory
-    // only. Ya viene agregado por Mongo (sku, día) — sólo hay que sumar los
-    // días distintos, no recorrer órdenes crudas.
-    const demandMap = summarizeDemand(periodDemand?.items ?? []);
+    // only. Ya viene sumado por Mongo (sólo agrupado por sku) — dailyRate()
+    // divide por el total de días de la ventana, no por días activos.
+    const demandMap = new Map((periodDemand?.items ?? []).map((r) => [r.sku, r.qty]));
 
     // Same aggregation, but bounded by the fixed risk window — feeds
     // riskCoverageDays below, which is what actually decides invStatus.
-    const riskDemandMap = summarizeDemand(riskDemand?.items ?? []);
+    const riskDemandMap = new Map((riskDemand?.items ?? []).map((r) => [r.sku, r.qty]));
 
     // Last-order date per SKU, acotado a los últimos 92 días (el máximo que
     // el backend admite en una consulta agregada) en vez de "todo el
@@ -224,12 +224,11 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
     >();
 
     const enriched: EnrichedProduct[] = products.map((p) => {
-      const demandInfo = demandMap.get(p.sku);
-      const dailyDemand = demandInfo ? demandInfo.totalQty / Math.max(demandInfo.days, 1) : 0;
+      const totalUnits = demandMap.get(p.sku) ?? 0;
+      const dailyDemand = dailyRate(totalUnits, periodOrdersWindow.days);
       const coverageDays = dailyDemand > 0 ? p.available / dailyDemand : p.available > 0 ? 9999 : 0;
 
-      const riskInfo = riskDemandMap.get(p.sku);
-      const riskDailyDemand = riskInfo ? riskInfo.totalQty / Math.max(riskInfo.days, 1) : 0;
+      const riskDailyDemand = dailyRate(riskDemandMap.get(p.sku) ?? 0, riskOrdersWindow.days);
       const riskCoverageDays =
         riskDailyDemand > 0 ? p.available / riskDailyDemand : p.available > 0 ? 9999 : 0;
       riskCoverageBySku.set(p.sku, { riskDailyDemand, riskCoverageDays });
@@ -275,8 +274,10 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
         priceCents: p.priceCents,
         currency: p.currency,
         dailyDemand,
-        totalUnits: demandInfo?.totalQty ?? 0,
+        totalUnits,
         coverageDays,
+        riskDailyDemand,
+        riskCoverageDays,
         stockValue,
         reqNeto,
         lastOrderDate,
@@ -322,5 +323,15 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
       .map(([zone, { stock, capacity }]) => ({ zone, stock, capacity }));
 
     return { products: enriched, kpis, zoneOccupancy, riskWindowDays };
-  }, [products, periodDemand, riskDemand, lastOrders, positions, riskWindowDays, riskBounds]);
+  }, [
+    products,
+    periodDemand,
+    riskDemand,
+    lastOrders,
+    positions,
+    riskWindowDays,
+    riskBounds,
+    periodOrdersWindow.days,
+    riskOrdersWindow.days,
+  ]);
 }
