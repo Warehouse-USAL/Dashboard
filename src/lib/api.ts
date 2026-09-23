@@ -381,18 +381,206 @@ export async function getOrders(
   }
 }
 
-// Same rationale as getOrders() above: request the backend's hard cap (50)
-// by default instead of its default page size (10).
-export async function getProducts(size: number = 50): Promise<FrontendProduct[]> {
+// ─── Active orders (pending + in_progress) ─────────────────────────────────────
+// GET /orders sin status trae una sola página de 50 filas SIN orden garantizado
+// (OrderRepository.findByFilters pagina sobre Mongo sin Sort). Con 700+ órdenes
+// de seed, casi todas completed/cancelled, una orden activa nueva puede quedar
+// fuera de esa página y no aparecer nunca en la Cola — es el bug real que
+// motivó esto. Como el backend sólo acepta un status por request, se pide cada
+// uno por separado y se recorren TODAS sus páginas: en la práctica las órdenes
+// activas son un puñado, así que esto no dispara más de una página por status.
+
+interface BackendPagination {
+  page: number;
+  size: number;
+  total_elements: number;
+  total_pages: number;
+}
+
+interface BackendOrdersPage {
+  orders?: BackendOrder[];
+  content?: BackendOrder[];
+  pagination?: BackendPagination;
+}
+
+/**
+ * Recorre TODAS las páginas de un GET paginado del backend, no sólo la
+ * primera — el mismo problema puede aparecer en cualquier endpoint con tope
+ * de 50: hoy el dataset entra en una página, pero uno que crezca por encima
+ * deja filas afuera en silencio (así se descubrió el bug real de Cola).
+ * `fetchPage(page)` pide una página y devuelve sus filas + el total de
+ * páginas que reporta el backend; `maxPages` es un salvavidas, no un valor
+ * esperado, por si `total_pages` viniera roto.
+ */
+async function fetchAllPages<T>(
+  fetchPage: (page: number) => Promise<{ items: T[]; totalPages: number }>,
+  maxPages: number,
+  label: string,
+): Promise<T[]> {
+  const first = await fetchPage(0);
+  const totalPages = first.totalPages;
+  if (totalPages <= 1) return first.items;
+
+  const pagesToFetch = Math.min(totalPages, maxPages);
+  if (totalPages > maxPages) {
+    console.error(
+      `[api] ${label}: el backend reporta ${totalPages} páginas, se cortó en ${maxPages}`,
+    );
+  }
+
+  const rest = await Promise.all(
+    Array.from({ length: pagesToFetch - 1 }, (_, i) => fetchPage(i + 1)),
+  );
+  return [first, ...rest].flatMap((p) => p.items);
+}
+
+const ACTIVE_ORDERS_PAGE_SIZE = 50;
+// 8 páginas × 50 = 400 órdenes de UN status — las activas reales son un
+// puñado, así que esto no debería usarse en serio.
+const MAX_ORDER_PAGES = 8;
+
+async function fetchOrdersPage(status: string, page: number): Promise<BackendOrdersPage> {
+  const params = new URLSearchParams({
+    status,
+    page: page.toString(),
+    size: ACTIVE_ORDERS_PAGE_SIZE.toString(),
+  });
+  const res = await apiFetch(`/orders?${params.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as BackendOrdersPage;
+}
+
+async function fetchAllOrdersByStatus(status: string): Promise<BackendOrder[]> {
+  const items = await fetchAllPages(
+    async (page) => {
+      const body = await fetchOrdersPage(status, page);
+      return {
+        items: body.orders ?? body.content ?? [],
+        totalPages: body.pagination?.total_pages ?? 1,
+      };
+    },
+    MAX_ORDER_PAGES,
+    `fetchAllOrdersByStatus(${status})`,
+  );
+
+  // Sin Sort en el backend, una orden que entra/sale de este status entre el
+  // fetch de una página y la siguiente puede correr el offset y repetir una
+  // fila ya vista — deduplicar por id evita mostrarla dos veces en la Cola.
+  const merged = new Map<string, BackendOrder>();
+  for (const o of items) merged.set(o.id, o);
+  return [...merged.values()];
+}
+
+/**
+ * Órdenes activas (pending + in_progress) para la Cola, el Aging y el donut de
+ * prioridad — a diferencia de getOrders() sin status, ésta recorre todas las
+ * páginas de cada uno de los dos estados en vez de conformarse con la primera.
+ */
+export async function getActiveOrders(): Promise<FrontendOrder[]> {
   try {
-    const params = new URLSearchParams();
-    if (size) params.set("size", size.toString());
-    const res = await apiFetch(`/products?${params.toString()}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const raw = await res.json();
-    const list = (
-      Array.isArray(raw) ? raw : (raw.products ?? raw.content ?? [])
-    ) as BackendProduct[];
+    const [pending, inProgress] = await Promise.all([
+      fetchAllOrdersByStatus("pending"),
+      fetchAllOrdersByStatus("in_progress"),
+    ]);
+    return [...pending, ...inProgress].map(mapOrder);
+  } catch (err) {
+    console.error("[api] getActiveOrders → mock:", err);
+    return mockOrders.map((o) => ({ ...o }));
+  }
+}
+
+// ─── Órdenes de un rango de fechas (Histórico) ─────────────────────────────────
+// Mismo problema que tenían Cola/Productos: GET /orders sin filtrar trae sólo
+// la página 0 (tope 50), sin orden garantizado, así que el Histórico puede
+// mostrar un recorte arbitrario del período elegido en vez de todas las
+// órdenes reales de esa ventana. El backend sí filtra por from/to, así que acá
+// alcanza con pedir por rango y recorrer todas las páginas de ESE resultado
+// (ya acotado), no de todas las órdenes existentes.
+
+async function fetchOrdersInRangePage(
+  fromISO: string,
+  toISO: string,
+  page: number,
+): Promise<BackendOrdersPage> {
+  const params = new URLSearchParams({
+    from: fromISO,
+    to: toISO,
+    page: page.toString(),
+    size: ACTIVE_ORDERS_PAGE_SIZE.toString(),
+  });
+  const res = await apiFetch(`/orders?${params.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as BackendOrdersPage;
+}
+
+// Histórico es una herramienta de auditoría: tiene que poder mostrar
+// absolutamente todas las órdenes del rango elegido, no "hasta tal cantidad".
+// 2000 páginas × 50 = 100 000 órdenes es un freno de emergencia contra un bug
+// de verdad (el backend devolviendo un total_pages corrompido) — a la escala
+// real de este proyecto (729 órdenes hoy) nunca debería activarse, así que no
+// hace falta avisar en la UI cuando se corta: en la práctica, no se corta.
+const MAX_HISTORY_PAGES = 2000;
+
+export async function getOrdersInRange(fromISO: string, toISO: string): Promise<FrontendOrder[]> {
+  try {
+    const items = await fetchAllPages(
+      async (page) => {
+        const body = await fetchOrdersInRangePage(fromISO, toISO, page);
+        return {
+          items: body.orders ?? body.content ?? [],
+          totalPages: body.pagination?.total_pages ?? 1,
+        };
+      },
+      MAX_HISTORY_PAGES,
+      `getOrdersInRange(${fromISO}..${toISO})`,
+    );
+    return items.map(mapOrder);
+  } catch (err) {
+    console.error("[api] getOrdersInRange → mock:", err);
+    return mockOrders.map((o) => ({ ...o }));
+  }
+}
+
+interface BackendProductsPage {
+  products?: BackendProduct[];
+  content?: BackendProduct[];
+  pagination?: BackendPagination;
+}
+
+const PRODUCTS_PAGE_SIZE = 50;
+// 8 páginas × 50 = 400 productos — el catálogo tiene 24 en el seed (55 tras
+// crear productos de prueba), así que sobra por mucho margen.
+const MAX_PRODUCT_PAGES = 8;
+
+async function fetchProductsPage(page: number): Promise<BackendProductsPage> {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    size: PRODUCTS_PAGE_SIZE.toString(),
+  });
+  const res = await apiFetch(`/products?${params.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as BackendProductsPage;
+}
+
+/**
+ * Antes pedía sólo la página 0 (tope de 50) — con 24 productos en el seed no
+ * se notaba, pero un catálogo más grande dejaba productos afuera de la tabla
+ * de Inventario sin ningún aviso (mismo mecanismo que tenía Cola). Ahora
+ * recorre todas las páginas.
+ */
+export async function getProducts(): Promise<FrontendProduct[]> {
+  try {
+    const list = await fetchAllPages(
+      async (page) => {
+        const body = await fetchProductsPage(page);
+        return {
+          items: body.products ?? body.content ?? [],
+          totalPages: body.pagination?.total_pages ?? 1,
+        };
+      },
+      MAX_PRODUCT_PAGES,
+      "getProducts",
+    );
     return list.map(mapProduct);
   } catch (err) {
     console.error("[api] getProducts → mock:", err);
