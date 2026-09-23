@@ -379,7 +379,10 @@ function HomePage() {
                       {name}
                     </span>
                     <span className="text-[11px] text-muted-foreground shrink-0">
-                      {demand < 1 ? demand.toFixed(1) : Math.round(demand)} u/d
+                      {/* 2 decimales, no 1: con 1 sólo, SKUs con demanda real
+                          distinta redondeaban al mismo número en pantalla
+                          mientras la barra (sin redondear) se veía distinta. */}
+                      {demand < 1 ? demand.toFixed(2) : Math.round(demand)} u/d
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
