@@ -37,12 +37,13 @@ import { useQuery } from "@tanstack/react-query";
 import { getAllPositions } from "@/lib/api";
 import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
-import { useActiveOrders, useOrders } from "@/hooks/useOrders";
+import { useActiveOrders } from "@/hooks/useOrders";
+import { useOrderStats } from "@/hooks/useOrderStats";
 import { useProducts } from "@/hooks/useProducts";
 import { useInventoryMetrics } from "@/hooks/useInventoryMetrics";
 import { useFleetMetrics } from "@/hooks/useFleetMetrics";
 import { formatDuration } from "@/lib/metrics-api";
-import { periodLabel, periodToBounds, withinBounds, type PeriodId } from "@/lib/dateRange";
+import { periodLabel, type PeriodId } from "@/lib/dateRange";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
@@ -75,6 +76,11 @@ const alertIconMap: Record<string, React.ComponentType<{ className?: string }>> 
   "alert-triangle": AlertTriangle,
 };
 
+// useOrderStats() exige un umbral de SLA aunque Home no muestre slaPct — sólo
+// se usa para esa consulta interna que acá no se lee. Mismo valor que Órdenes
+// (_dash.ordenes-v2.tsx), para no inventar un segundo número sin sentido.
+const SLA_MINUTES = 5;
+
 function HomePage() {
   const { data: rovers } = useVehicles();
   const {
@@ -86,12 +92,9 @@ function HomePage() {
     to: roversTo,
     total: roversTotal,
   } = usePagedList(rovers, 10);
-  const { data: orders } = useOrders();
-  // Sólo para "Órdenes en proceso": useOrders() sin status trae una página de
-  // 50 sin orden garantizado, y una orden activa nueva puede quedar fuera. Ver
-  // getActiveOrders() en lib/api.ts. Cumplimiento/totalOrders más abajo siguen
-  // con `orders` a propósito — necesitan TODOS los estados de un período, no
-  // sólo activas, y ese es un problema más grande fuera de este fix.
+  // Sólo para "Órdenes en proceso": useOrders() sin status traía una página
+  // de 50 sin orden garantizado, y una orden activa nueva podía quedar
+  // fuera. Ver getActiveOrders() en lib/api.ts.
   const { data: activeOrders } = useActiveOrders();
   const { data: products } = useProducts();
   const [period, setPeriod] = useState<PeriodId>("7d");
@@ -103,6 +106,12 @@ function HomePage() {
   // Mismo hook que usa Vehículos — así MTBF coincide entre las dos páginas en
   // vez de que Home muestre "sin datos" mientras Vehículos sí tiene el número.
   const fleet = useFleetMetrics(period, customRange);
+  // Mismo hook que usa Órdenes para "Tasa de cumplimiento" — antes Home
+  // recalculaba lo mismo a mano sobre useOrders() (capado a 50, sin orden
+  // garantizado) y encima devolvía "100%" cuando no había datos en vez de
+  // "sin datos". Reusarlo hace que el número coincida entre las dos páginas
+  // y hereda el fallback correcto (compliancePct === null).
+  const stats = useOrderStats(period, customRange, SLA_MINUTES * 60_000);
   const { data: positions = [] } = useQuery({
     queryKey: ["warehouse-positions"],
     queryFn: getAllPositions,
@@ -133,20 +142,17 @@ function HomePage() {
   );
 
   const inProcess = activeOrders.filter((o) => o.state === "en proceso").length;
-  const totalOrders = orders.length;
+  // Antes mostraba orders.length ("X totales") — pero `orders` viene de
+  // useOrders() sin status, capado a 50 filas sin orden garantizado, así que
+  // ese "total" nunca fue exacto (con cientos de órdenes reales, mostraba
+  // como mucho 50). activeOrders.length sí es exacto (recorre todas las
+  // páginas de pending/in_progress), así que el subtítulo pasa a contar
+  // activas en vez de un "total" que nunca lo fue.
+  const totalActiveOrders = activeOrders.length;
 
   // Mismo cálculo que "Cumplimiento" en Órdenes (completadas vs canceladas,
   // acotado por período, 100% cuando no hay datos) — antes esto se calculaba
   // sobre TODAS las órdenes sin fecha, así que nunca iba a coincidir.
-  const dateBounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
-  const compliance = useMemo(() => {
-    const dateFilteredOrders = orders.filter((o) => withinBounds(o.createdAt, dateBounds));
-    const completadas = dateFilteredOrders.filter((o) => o.state === "completada").length;
-    const canceladas = dateFilteredOrders.filter((o) => o.state === "cancelada").length;
-    return completadas + canceladas > 0
-      ? Math.round((completadas / (completadas + canceladas)) * 100)
-      : 100;
-  }, [orders, dateBounds]);
 
   const inventarioValor = useMemo(() => {
     const total = products.reduce((sum, p) => sum + (p.available * p.priceCents) / 100, 0);
@@ -222,7 +228,7 @@ function HomePage() {
           label="Órdenes en proceso"
           value={String(inProcess)}
           icon={Activity}
-          trend={`${totalOrders} totales`}
+          trend={`${totalActiveOrders} activas`}
           accent="accent"
           temporal={live()}
         />
@@ -236,9 +242,13 @@ function HomePage() {
         />
         <KpiCard
           label="Cumplimiento"
-          value={`${compliance}%`}
+          value={stats.compliancePct !== null ? `${stats.compliancePct}%` : "—"}
           icon={CheckCircle2}
-          trend={`completadas vs canceladas · ${periodLabel(period, customRange)}`}
+          trend={
+            stats.compliancePct !== null
+              ? `completadas vs canceladas · ${periodLabel(period, customRange)}`
+              : "Sin completadas ni canceladas en el período"
+          }
           accent="primary"
           temporal={periodTemporal(periodLabel(period, customRange))}
         />

@@ -28,7 +28,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { useActiveOrders, useOrders } from "@/hooks/useOrders";
+import { useActiveOrders, useOrdersInRange } from "@/hooks/useOrders";
 import { useOrderStats } from "@/hooks/useOrderStats";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import type { DataSource } from "@/lib/data-source";
@@ -37,7 +37,7 @@ import { live, period as periodTemporal } from "@/lib/temporality";
 import type { Temporality } from "@/lib/temporality";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
-import { periodToBounds, withinBounds } from "@/lib/dateRange";
+import { periodToBounds } from "@/lib/dateRange";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -439,16 +439,9 @@ function getOrderItems(o: { id: string; product: string; qty: number }) {
 }
 
 export function OrdenesPage() {
-  const { data: ordersRaw } = useOrders();
-  const orders = useMemo(
-    () =>
-      ordersRaw.map((o) => ({ ...o, state: (LEGACY_STATE_MAP[o.state] ?? o.state) as OrderState })),
-    [ordersRaw],
-  );
-
   // Cola, Aging y el donut de prioridad sólo necesitan pending/in_progress —
   // useActiveOrders() recorre TODAS las páginas de esos dos estados en vez de
-  // conformarse con la primera página de "todas" como hace `orders` arriba.
+  // conformarse con la primera página de un GET /orders sin filtrar.
   // Ver getActiveOrders() en lib/api.ts para el bug real que esto arregla.
   const { data: activeOrdersRaw } = useActiveOrders();
   const activeOrders = useMemo(
@@ -472,10 +465,27 @@ export function OrdenesPage() {
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Sigue haciendo falta sólo para "Histórico de órdenes" (todavía hardcodeado
-  // más abajo) — el resto de los paneles que usaban esto ahora leen de
-  // useOrderStats, que pide su propia ventana acotada directo al backend.
+  // Sigue haciendo falta sólo para "Histórico de órdenes" — el resto de los
+  // paneles que usaban esto ahora leen de useOrderStats, que pide su propia
+  // ventana acotada directo al backend.
   const dateBounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+
+  // Histórico: TODOS los estados dentro del período elegido, pidiendo por
+  // rango de fecha y paginando de verdad (ver getOrdersInRange() en
+  // lib/api.ts) — antes leía GET /orders sin filtrar, tope de 50 sin orden
+  // garantizado, así que con 729+ órdenes reales podía mostrar un recorte
+  // arbitrario del período en vez de todas las órdenes de esa ventana.
+  const histFromISO = useMemo(() => new Date(dateBounds.from).toISOString(), [dateBounds]);
+  const histToISO = useMemo(() => new Date(dateBounds.to).toISOString(), [dateBounds]);
+  const { data: histOrdersRaw } = useOrdersInRange(histFromISO, histToISO);
+  const histOrders = useMemo(
+    () =>
+      histOrdersRaw.map((o) => ({
+        ...o,
+        state: (LEGACY_STATE_MAP[o.state] ?? o.state) as OrderState,
+      })),
+    [histOrdersRaw],
+  );
 
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
@@ -587,14 +597,13 @@ export function OrdenesPage() {
   } = usePagedList(filteredTable, 10);
 
   // Histórico real, acotado por el período — reemplaza el array HISTORICO
-  // inventado. Misma fuente que el resto de la página (`orders`, GET /orders,
-  // mismo tope de 50 filas que ya tienen Cola/Aging — no es una limitación
-  // nueva). A diferencia de Cola, acá van TODOS los estados: esto es
-  // historial, no una cola de trabajo pendiente.
+  // inventado. A diferencia de Cola, acá van TODOS los estados: esto es
+  // historial, no una cola de trabajo pendiente. El filtro de fecha ya lo
+  // hizo el backend (from/to en getOrdersInRange) — acá sólo quedan los
+  // filtros de UI (prioridad, estado).
   const filteredHist = useMemo(() => {
-    return orders
+    return histOrders
       .filter((o) => {
-        if (!withinBounds(o.createdAt, dateBounds)) return false;
         const p = (o.priority?.toLowerCase() as Priority) ?? "media";
         if (!priorityFilter.has(p)) return false;
         if (!stateFilter.has(o.state as OrderState)) return false;
@@ -628,7 +637,7 @@ export function OrdenesPage() {
         };
       })
       .sort((a, b) => b.t - a.t);
-  }, [orders, dateBounds, priorityFilter, stateFilter]);
+  }, [histOrders, priorityFilter, stateFilter]);
 
   const {
     page: histPage,
