@@ -68,6 +68,37 @@ export const backendOrders = [
     timestamps: { created_at: hoursAgo(5), started_at: hoursAgo(5), completed_at: null },
     cancel_reason: "Producto no encontrado",
   },
+  // Ruido para reproducir el bug real: el seed de wh-backend tiene 700+
+  // órdenes, la enorme mayoría completed/cancelled. GET /orders sin status
+  // trae una sola página de 50 filas sin orden garantizado (sin Sort en el
+  // backend), así que una orden activa nueva puede quedar enterrada más allá
+  // de esa página y no aparecer nunca en la Cola. Estas 54 filas empujan a
+  // ORD-BURIED-ACTIVE a la posición 55 — no se usan por sí solas en ningún
+  // assert.
+  ...Array.from({ length: 54 }, (_, i) => ({
+    id: `ORD-NOISE-${i}`,
+    status: "completed",
+    requested_by_user_id: "USR-01",
+    items: [{ product_id: "PROD-000", sku: "SKU-NOISE", quantity: 1 }],
+    destination_area: "AREA-A",
+    assigned_vehicle_id: "VHC-001",
+    timestamps: {
+      created_at: hoursAgo(200),
+      started_at: hoursAgo(199),
+      completed_at: hoursAgo(198),
+    },
+    cancel_reason: null,
+  })),
+  {
+    id: "ORD-BURIED-ACTIVE",
+    status: "pending",
+    requested_by_user_id: "USR-03",
+    items: [{ product_id: "PROD-009", sku: "SKU-Z999", quantity: 2 }],
+    destination_area: "AREA-E",
+    assigned_vehicle_id: null,
+    timestamps: { created_at: minutesAgo(1), started_at: null, completed_at: null },
+    cancel_reason: null,
+  },
 ];
 
 /**
@@ -122,16 +153,21 @@ export const handlers = [
   // Wildcard para no depender de VITE_API_URL (en dev el front pega a rutas
   // relativas vía el proxy de Vite, así que BASE_URL suele ser "").
   http.get("*/orders", ({ request }) => {
-    const status = new URL(request.url).searchParams.get("status");
-    const orders = status ? backendOrders.filter((o) => o.status === status) : backendOrders;
+    const url = new URL(request.url);
+    const status = url.searchParams.get("status");
+    const page = Number(url.searchParams.get("page") ?? "0");
+    const size = Number(url.searchParams.get("size") ?? "50");
+    const filtered = status ? backendOrders.filter((o) => o.status === status) : backendOrders;
+    const start = page * size;
+    const orders = filtered.slice(start, start + size);
 
     return HttpResponse.json({
       orders,
       pagination: {
-        page: 0,
-        size: 50,
-        total_elements: orders.length,
-        total_pages: 1,
+        page,
+        size,
+        total_elements: filtered.length,
+        total_pages: Math.max(1, Math.ceil(filtered.length / size)),
       },
     });
   }),

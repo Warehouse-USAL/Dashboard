@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { mapVehicle, mapOrder, mapOrderPriority } from "./api";
+import { http, HttpResponse } from "msw";
+import { server } from "@/test/msw/server";
+import { mapVehicle, mapOrder, mapOrderPriority, getActiveOrders } from "./api";
 
 describe("mapVehicle", () => {
   it("mapea un vehículo del backend al shape Rover que usa el dashboard", () => {
@@ -99,5 +101,44 @@ describe("mapOrderPriority", () => {
     // Si el backend agrega un quinto valor, preferimos verlo crudo en la UI
     // antes que contarlo en silencio como "media".
     expect(mapOrderPriority("CRITICAL")).toBe("critical");
+  });
+});
+
+describe("getActiveOrders", () => {
+  // GET /orders sin status trae una sola página de 50 sin orden garantizado —
+  // el bug real. getActiveOrders() esquiva eso pidiendo cada status aparte y
+  // recorriendo TODAS sus páginas: acá se prueba justo el caso en que un solo
+  // status por sí solo ya supera una página.
+  it("junta todas las páginas cuando un status por sí solo supera el tamaño de página", async () => {
+    const pendingOrders = Array.from({ length: 55 }, (_, i) => ({
+      id: `ORD-PENDING-${i}`,
+      status: "pending",
+      items: [{ product_id: "P1", sku: "SKU-X", quantity: 1 }],
+      timestamps: { created_at: new Date().toISOString() },
+    }));
+
+    server.use(
+      http.get("*/orders", ({ request }) => {
+        const url = new URL(request.url);
+        const status = url.searchParams.get("status");
+        const page = Number(url.searchParams.get("page") ?? "0");
+        const size = Number(url.searchParams.get("size") ?? "50");
+        const filtered = status === "pending" ? pendingOrders : [];
+        const start = page * size;
+        return HttpResponse.json({
+          orders: filtered.slice(start, start + size),
+          pagination: {
+            page,
+            size,
+            total_elements: filtered.length,
+            total_pages: Math.max(1, Math.ceil(filtered.length / size)),
+          },
+        });
+      }),
+    );
+
+    const result = await getActiveOrders();
+
+    expect(result).toHaveLength(55);
   });
 });

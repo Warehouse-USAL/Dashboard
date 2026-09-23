@@ -28,7 +28,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { useOrders } from "@/hooks/useOrders";
+import { useActiveOrders, useOrders } from "@/hooks/useOrders";
 import { useOrderStats } from "@/hooks/useOrderStats";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import type { DataSource } from "@/lib/data-source";
@@ -446,6 +446,20 @@ export function OrdenesPage() {
     [ordersRaw],
   );
 
+  // Cola, Aging y el donut de prioridad sólo necesitan pending/in_progress —
+  // useActiveOrders() recorre TODAS las páginas de esos dos estados en vez de
+  // conformarse con la primera página de "todas" como hace `orders` arriba.
+  // Ver getActiveOrders() en lib/api.ts para el bug real que esto arregla.
+  const { data: activeOrdersRaw } = useActiveOrders();
+  const activeOrders = useMemo(
+    () =>
+      activeOrdersRaw.map((o) => ({
+        ...o,
+        state: (LEGACY_STATE_MAP[o.state] ?? o.state) as OrderState,
+      })),
+    [activeOrdersRaw],
+  );
+
   const [period, setPeriod] = useState<PeriodId>("24h");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
   const [priorityFilter, setPriorityFilter] = useState<Set<Priority>>(
@@ -483,7 +497,7 @@ export function OrdenesPage() {
   // date-filtered (an order stuck since last week should still show up here).
   const agingBuckets = useMemo(() => {
     const now = Date.now();
-    const active = orders.filter(
+    const active = activeOrders.filter(
       (o) => (o.state === "pending" || o.state === "in_progress") && o.createdAt,
     );
     const counts = [0, 0, 0, 0, 0];
@@ -502,7 +516,7 @@ export function OrdenesPage() {
       { bucket: "30 - 60 min", value: counts[3], tone: "bg-amber-500" },
       { bucket: "> 60 min", value: counts[4], tone: "bg-rose-500" },
     ];
-  }, [orders]);
+  }, [activeOrders]);
 
   const distTotal = stats.total;
   const distData = (Object.keys(stats.counts) as OrderState[]).map((k) => ({
@@ -518,13 +532,13 @@ export function OrdenesPage() {
   // hay que atender ahora".
   const livePriorityCounts = useMemo(() => {
     const counts: Record<Priority, number> = { urgente: 0, alta: 0, media: 0, baja: 0 };
-    for (const o of orders) {
+    for (const o of activeOrders) {
       if (o.state !== "pending" && o.state !== "in_progress") continue;
       const p = o.priority?.toLowerCase() as Priority | undefined;
       if (p && p in counts) counts[p] += 1;
     }
     return counts;
-  }, [orders]);
+  }, [activeOrders]);
 
   const prioTotal =
     livePriorityCounts.urgente +
@@ -550,7 +564,7 @@ export function OrdenesPage() {
   // no "todos los estados que existen".
   const filteredTable = useMemo(
     () =>
-      orders.filter((o) => {
+      activeOrders.filter((o) => {
         if (o.state !== "pending" && o.state !== "in_progress") return false;
         if (tableTab !== "todas" && o.state !== tableTab) return false;
         if (!priorityFilter.has(o.priority as Priority)) return false;
@@ -559,7 +573,7 @@ export function OrdenesPage() {
           return false;
         return true;
       }),
-    [orders, tableTab, priorityFilter, stateFilter, q],
+    [activeOrders, tableTab, priorityFilter, stateFilter, q],
   );
 
   const {
