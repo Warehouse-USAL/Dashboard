@@ -489,6 +489,58 @@ export async function getActiveOrders(): Promise<FrontendOrder[]> {
   }
 }
 
+// ─── Órdenes de un rango de fechas (Histórico) ─────────────────────────────────
+// Mismo problema que tenían Cola/Productos: GET /orders sin filtrar trae sólo
+// la página 0 (tope 50), sin orden garantizado, así que el Histórico puede
+// mostrar un recorte arbitrario del período elegido en vez de todas las
+// órdenes reales de esa ventana. El backend sí filtra por from/to, así que acá
+// alcanza con pedir por rango y recorrer todas las páginas de ESE resultado
+// (ya acotado), no de todas las órdenes existentes.
+
+async function fetchOrdersInRangePage(
+  fromISO: string,
+  toISO: string,
+  page: number,
+): Promise<BackendOrdersPage> {
+  const params = new URLSearchParams({
+    from: fromISO,
+    to: toISO,
+    page: page.toString(),
+    size: ACTIVE_ORDERS_PAGE_SIZE.toString(),
+  });
+  const res = await apiFetch(`/orders?${params.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as BackendOrdersPage;
+}
+
+// Histórico es una herramienta de auditoría: tiene que poder mostrar
+// absolutamente todas las órdenes del rango elegido, no "hasta tal cantidad".
+// 2000 páginas × 50 = 100 000 órdenes es un freno de emergencia contra un bug
+// de verdad (el backend devolviendo un total_pages corrompido) — a la escala
+// real de este proyecto (729 órdenes hoy) nunca debería activarse, así que no
+// hace falta avisar en la UI cuando se corta: en la práctica, no se corta.
+const MAX_HISTORY_PAGES = 2000;
+
+export async function getOrdersInRange(fromISO: string, toISO: string): Promise<FrontendOrder[]> {
+  try {
+    const items = await fetchAllPages(
+      async (page) => {
+        const body = await fetchOrdersInRangePage(fromISO, toISO, page);
+        return {
+          items: body.orders ?? body.content ?? [],
+          totalPages: body.pagination?.total_pages ?? 1,
+        };
+      },
+      MAX_HISTORY_PAGES,
+      `getOrdersInRange(${fromISO}..${toISO})`,
+    );
+    return items.map(mapOrder);
+  } catch (err) {
+    console.error("[api] getOrdersInRange → mock:", err);
+    return mockOrders.map((o) => ({ ...o }));
+  }
+}
+
 interface BackendProductsPage {
   products?: BackendProduct[];
   content?: BackendProduct[];
