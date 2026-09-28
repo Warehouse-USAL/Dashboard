@@ -154,46 +154,56 @@ function RoversPage() {
   } = usePagedList(filteredRovers, 10);
 
   const totalRovers = rovers.length;
-  const activos = rovers.filter((r) => r.state === "busy").length;
-  const cargando = rovers.filter((r) => r.state === "idle").length;
-  const detenidos = rovers.filter((r) => r.state === "error").length;
-  const disponibilidad = totalRovers ? Math.round((activos / totalRovers) * 100) : 0;
-  const utilizacion = totalRovers
-    ? Math.round((rovers.filter((r) => r.order).length / totalRovers) * 100)
-    : 0;
+  const ocupados = rovers.filter((r) => r.state === "busy").length;
+  const enServicio = rovers.filter((r) => r.state === "busy" || r.state === "idle").length;
+  const fueraDeServicio = totalRovers - enServicio;
+  const pctDelTotal = (n: number) => (totalRovers ? Math.round((n / totalRovers) * 100) : 0);
+  // Promedio de tiempo ocupado del período, sobre toda la flota: un rover que
+  // nunca estuvo busy no trae serie y cuenta como 0. `null` = sin datos de métricas.
+  const utilizacion =
+    fleet.busyFractionSum === null || !totalRovers
+      ? null
+      : Math.min(100, Math.round((fleet.busyFractionSum / totalRovers) * 100));
   const horasTotales = rovers.reduce((a, r) => a + r.hours, 0);
 
   const kpis = [
     {
       icon: Truck,
-      label: "Rovers activos",
-      value: `${activos}`,
+      label: "Rovers ocupados",
+      value: `${ocupados}`,
       suffix: ` / ${totalRovers}`,
-      sub: `${Math.round((activos / Math.max(totalRovers, 1)) * 100)}% del total`,
+      sub: `En estado busy ahora · ${pctDelTotal(ocupados)}% del total`,
       tone: "primary" as const,
       temporal: live(),
     },
     {
       icon: Activity,
       label: "Disponibilidad",
-      value: `${disponibilidad}%`,
-      sub: `${cargando} idle · ${detenidos} error`,
+      value: `${pctDelTotal(enServicio)}%`,
+      sub: `Busy + idle sobre el total · ${fueraDeServicio} offline/error`,
       tone: "success" as const,
       temporal: live(),
     },
     {
       icon: Zap,
       label: "Utilización de flota",
-      value: `${utilizacion}%`,
-      sub: "Rovers con orden asignada",
+      value: utilizacion === null ? "—" : `${utilizacion}%`,
+      sub:
+        utilizacion === null
+          ? "Sin datos de métricas"
+          : "Tiempo ocupado de la flota en el período, promedio de todos los rovers",
       tone: "warning" as const,
-      temporal: live(),
+      source: fleet.metricsSource,
+      temporal: periodTemporal(periodLabel(period, customRange)),
     },
     {
       icon: Clock,
       label: "MTBF",
       value: formatDuration(fleet.fleetMtbf),
-      sub: fleet.fleetMtbf === null ? "Sin fallas en el período" : "Prom. entre fallas",
+      sub:
+        fleet.fleetMtbf === null
+          ? "Sin fallas en el período"
+          : "Tiempo del período / fallas · promedio de rovers que fallaron",
       tone: "info" as const,
       source: fleet.metricsSource,
       temporal: periodTemporal(periodLabel(period, customRange)),
@@ -202,7 +212,10 @@ function RoversPage() {
       icon: Wrench,
       label: "MTTR",
       value: formatDuration(fleet.fleetMttr),
-      sub: fleet.fleetMttr === null ? "Sin fallas en el período" : "Prom. reparación",
+      sub:
+        fleet.fleetMttr === null
+          ? "Sin fallas en el período"
+          : "Tiempo offline / fallas · promedio de rovers que fallaron",
       tone: "warning" as const,
       source: fleet.metricsSource,
       temporal: periodTemporal(periodLabel(period, customRange)),
@@ -457,19 +470,19 @@ function RoversPage() {
                     stroke="oklch(0.65 0.05 250)"
                     strokeWidth={2}
                     dot={false}
-                    name="Rovers activos"
+                    name="Rovers ocupados"
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           )}
           {/*
-            "Rovers activos" sale de contar el gauge de estado, que con step
+            "Rovers ocupados" sale de contar el gauge de estado, que con step
             grande devuelve el PROMEDIO de rovers BUSY durante el bloque, no un
             conteo instantáneo. Por eso puede dar decimales: es correcto.
           */}
           <p className="text-[10px] text-muted-foreground mt-3">
-            «Rovers activos» es el promedio de rovers ocupados en cada intervalo, por eso puede
+            «Rovers ocupados» es el promedio de rovers ocupados en cada intervalo, por eso puede
             tener decimales.
           </p>
           {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
@@ -775,11 +788,9 @@ function ProductividadPorRover({
         id: r.id,
         name: r.name,
         ordenes: s?.orders ?? 0,
-        asignadas: s?.ordersAssigned ?? 0,
-        // La eficiencia venía de una fórmula inventada sobre el estado y la
-        // batería del rover, mientras la nota al pie afirmaba que era
-        // "completadas sobre asignadas". Ahora es eso de verdad.
-        eficiencia: s?.efficiency ?? null,
+        // Antes se llamaba "eficiencia" y salía de una fórmula inventada sobre el
+        // estado y la batería del rover. Ahora es completadas sobre cerradas.
+        cumplimiento: s?.fulfillmentRate ?? null,
       };
     });
   }, [rovers, stats]);
@@ -795,7 +806,7 @@ function ProductividadPorRover({
   } = usePagedList(rows, 10);
 
   const maxOrdenes = Math.max(1, ...rows.map((r) => r.ordenes));
-  const efColor = (e: number) =>
+  const cumplimientoColor = (e: number) =>
     e >= 85 ? "bg-primary" : e >= 65 ? "bg-warning" : "bg-destructive";
 
   return (
@@ -814,7 +825,7 @@ function ProductividadPorRover({
             <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
               <Th>Rover</Th>
               <Th>Órdenes completadas</Th>
-              <Th className="text-right pr-4">Eficiencia</Th>
+              <Th className="text-right pr-4">Cumplimiento</Th>
             </tr>
           </thead>
           <tbody>
@@ -838,20 +849,20 @@ function ProductividadPorRover({
                   </div>
                 </td>
                 <td className="py-3 px-2">
-                  {r.eficiencia === null ? (
+                  {r.cumplimiento === null ? (
                     <p className="text-xs text-right text-muted-foreground pr-4">
-                      sin asignaciones
+                      sin órdenes cerradas
                     </p>
                   ) : (
                     <div className="flex items-center justify-end gap-3">
                       <div className="w-28 h-1.5 rounded-full bg-muted overflow-hidden">
                         <div
-                          className={`h-full ${efColor(r.eficiencia)}`}
-                          style={{ width: `${r.eficiencia}%` }}
+                          className={`h-full ${cumplimientoColor(r.cumplimiento)}`}
+                          style={{ width: `${r.cumplimiento}%` }}
                         />
                       </div>
                       <span className="text-xs w-10 text-right tabular-nums font-medium">
-                        {Math.round(r.eficiencia)}%
+                        {Math.round(r.cumplimiento)}%
                       </span>
                     </div>
                   )}
@@ -871,8 +882,9 @@ function ProductividadPorRover({
         itemLabel="rovers"
       />
       <p className="text-[10px] text-muted-foreground mt-3">
-        Eficiencia = órdenes completadas sobre asignadas en el período, contadas por el backend
-        sobre la ventana entera.
+        Cumplimiento = órdenes completadas / (completadas + canceladas) en el período. No cuenta las
+        órdenes en curso. Una cancelada cuenta como no cumplida aunque la haya cancelado un usuario,
+        y una orden reasignada se atribuye al último rover.
       </p>
     </Panel>
   );

@@ -30,6 +30,12 @@ import { worstSource, type DataSource } from "@/lib/data-source";
  */
 const FAILURE_STATE = "OFFLINE";
 
+/**
+ * Paso de la consulta de utilización. Fijo: 30 días son 720 puntos por rover,
+ * lejos del tope de 11 000, y no depende del período elegido.
+ */
+const BUSY_FRACTION_STEP = "1h";
+
 export type RoverFailurePoint = { t: number; [vehicleId: string]: number };
 
 export type FleetVehicleStats = {
@@ -39,10 +45,11 @@ export type FleetVehicleStats = {
   mttrSeconds: number | null;
   /** Órdenes COMPLETED del período. */
   orders: number;
-  /** Órdenes asignadas, en cualquier estado. */
-  ordersAssigned: number;
-  /** completadas / asignadas, en %. `null` si no se le asignó ninguna. */
-  efficiency: number | null;
+  /**
+   * completadas / (completadas + canceladas), en %. Las órdenes en curso no
+   * cuentan. `null` si el rover no tiene ninguna orden cerrada en el período.
+   */
+  fulfillmentRate: number | null;
 };
 
 export type ParetoBar = { label: string; failures: number; pct: number };
@@ -156,12 +163,35 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     refetchInterval: 30_000,
   });
 
+  // Utilización de la flota — fracción del período que cada rover pasó BUSY.
+  //
+  // Consulta propia y no la serie de `active`: aquella es para graficar y su
+  // paso cambia con el período (1h/6h/1d). Acá el paso es fijo porque sólo
+  // importa el promedio de toda la ventana. Con `avg` sobre el gauge 1/0, cada
+  // bloque vale la fracción de tiempo ocupado, y promediar bloques de igual
+  // largo es tiempo ocupado / tiempo total. Un rover que nunca estuvo BUSY no
+  // trae serie: la página divide por el total de la flota, así que cuenta como 0.
+  const busyFraction = useQuery({
+    queryKey: ["fleet-busy-fraction", mWindow.from, mWindow.to],
+    queryFn: () =>
+      metricsQuery({
+        metric: "wh.vehicle.state",
+        from: mWindow.from,
+        to: mWindow.to,
+        step: BUSY_FRACTION_STEP,
+        agg: "avg",
+        group_by: ["vehicle_id"],
+        filters: { state: "BUSY" },
+      }),
+    refetchInterval: 30_000,
+  });
+
   // Receta 11 — productividad por rover. Dato de negocio, va contra Mongo.
   //
   // Se agrupa por vehículo Y estado (dos claves, el tope son tres) en una sola
   // consulta: con eso sale tanto "cuántas órdenes tuvo" como "cuántas terminó",
-  // que es la eficiencia real. La página venía mostrando una eficiencia
-  // inventada a partir del estado y la batería del rover.
+  // que es la tasa de cumplimiento real. La página venía mostrando una
+  // "eficiencia" inventada a partir del estado y la batería del rover.
   const ordersByVehicle = useQuery({
     queryKey: ["orders-by-vehicle", oWindow.from.toISOString(), oWindow.to.toISOString()],
     queryFn: () =>
@@ -197,6 +227,12 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     const inErrorSeries = seriesOf(inError.data);
     const activeSeries = seriesOf(active.data);
 
+    // Suma de la fracción de tiempo BUSY de cada rover (0..1 c/u). `null` si la
+    // consulta falló: sin datos no es 0 %, es "no sé".
+    const busyFractionSum = busyFraction.data?.ok
+      ? seriesOf(busyFraction.data).reduce((acc, s) => acc + avgPoints(s), 0)
+      : null;
+
     const failuresByVehicle = byLabel(failureSeries, "vehicle_id");
     const inErrorByVehicle = byLabel(inErrorSeries, "vehicle_id");
 
@@ -205,15 +241,22 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     // minúsculas. Se normaliza acá, en el borde.
     const ordersTotalByVehicle = new Map<string, number>();
     const ordersDoneByVehicle = new Map<string, number>();
+    const ordersCancelledByVehicle = new Map<string, number>();
     for (const row of ordersByVehicle.data?.items ?? []) {
       ordersTotalByVehicle.set(
         row.vehicle,
         (ordersTotalByVehicle.get(row.vehicle) ?? 0) + row.orders,
       );
-      if (row.status?.toLowerCase() === "completed") {
+      const status = row.status?.toLowerCase();
+      if (status === "completed") {
         ordersDoneByVehicle.set(
           row.vehicle,
           (ordersDoneByVehicle.get(row.vehicle) ?? 0) + row.orders,
+        );
+      } else if (status === "cancelled") {
+        ordersCancelledByVehicle.set(
+          row.vehicle,
+          (ordersCancelledByVehicle.get(row.vehicle) ?? 0) + row.orders,
         );
       }
     }
@@ -234,18 +277,18 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
         const fraction = inErrorByVehicle.has(vehicleId)
           ? avgPoints(inErrorByVehicle.get(vehicleId)!)
           : 0;
-        const assigned = ordersTotalByVehicle.get(vehicleId) ?? 0;
         const completed = ordersDoneByVehicle.get(vehicleId) ?? 0;
+        const closed = completed + (ordersCancelledByVehicle.get(vehicleId) ?? 0);
         return {
           vehicleId,
           failures: n,
           mtbfSeconds: mtbfSeconds(n, mWindow.seconds),
           mttrSeconds: mttrSeconds(n, fraction, mWindow.seconds),
           orders: completed,
-          ordersAssigned: assigned,
-          // null, no 0, cuando no se le asignó nada: un rover sin órdenes no
-          // tiene 0 % de eficiencia, no tiene eficiencia.
-          efficiency: assigned > 0 ? (completed / assigned) * 100 : null,
+          // Sólo órdenes cerradas: una en curso todavía no es cumplida ni
+          // incumplida, y contarla en el denominador bajaba el % hasta que
+          // terminara. null, no 0, cuando no cerró ninguna: no tiene cumplimiento.
+          fulfillmentRate: closed > 0 ? (completed / closed) * 100 : null,
         };
       })
       .sort((a, b) => b.orders - a.orders);
@@ -317,7 +360,13 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
       orders: ordersByPoint.get(t) ?? 0,
     }));
 
-    const metricsSource = combineSources([failures.data, pareto.data, inError.data, active.data]);
+    const metricsSource = combineSources([
+      failures.data,
+      pareto.data,
+      inError.data,
+      active.data,
+      busyFraction.data,
+    ]);
     const ordersSource: DataSource =
       ordersByVehicle.isError || ordersByHour.isError ? "mock" : "live";
 
@@ -325,6 +374,7 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
       perVehicle,
       fleetMtbf,
       fleetMttr,
+      busyFractionSum,
       failureHistory,
       vehicleIds: [...failuresByVehicle.keys()].sort(),
       paretoBars,
@@ -352,6 +402,7 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     inError.data,
     active.data,
     active.isLoading,
+    busyFraction.data,
     ordersByVehicle.data,
     ordersByVehicle.isError,
     ordersByVehicle.isLoading,
