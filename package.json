@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:backend": "vitest run -c vitest.backend.config.ts",
     "format": "prettier --write .",
     "type-check": "tsc --noEmit",
     "format:check": "prettier --check ."
