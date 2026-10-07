@@ -69,7 +69,7 @@ function DashLayout() {
     <div className="min-h-screen bg-background text-foreground flex">
       {/* Sidebar */}
       <aside
-        className={`${mobileNavOpen ? "fixed inset-y-0 left-0 z-40 flex" : "hidden"} lg:flex w-60 shrink-0 border-r border-border bg-card/80 backdrop-blur flex-col`}
+        className={`${mobileNavOpen ? "fixed inset-y-0 left-0 z-40 flex" : "hidden"} lg:flex lg:sticky lg:top-0 lg:h-screen w-60 shrink-0 border-r border-border bg-card/80 backdrop-blur flex-col`}
       >
         <div className="p-5 border-b border-border flex items-center gap-3">
           <img src={logoUrl} alt="SmartWarehouse" className="h-8 w-auto" />
