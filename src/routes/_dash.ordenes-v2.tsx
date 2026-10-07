@@ -463,6 +463,9 @@ export function OrdenesPage() {
   );
   const [tableTab, setTableTab] = useState<"todas" | OrderState>("todas");
   const [q, setQ] = useState("");
+  // Búsqueda propia del Histórico: no comparte estado con la de Cola (esa busca
+  // en una tabla distinta, con otras órdenes a la vista).
+  const [histQ, setHistQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // Sigue haciendo falta sólo para "Histórico de órdenes" — el resto de los
@@ -600,13 +603,15 @@ export function OrdenesPage() {
   // inventado. A diferencia de Cola, acá van TODOS los estados: esto es
   // historial, no una cola de trabajo pendiente. El filtro de fecha ya lo
   // hizo el backend (from/to en getOrdersInRange) — acá sólo quedan los
-  // filtros de UI (prioridad, estado).
+  // filtros de UI (prioridad, estado y búsqueda por id de orden).
   const filteredHist = useMemo(() => {
+    const needle = histQ.trim().toLowerCase();
     return histOrders
       .filter((o) => {
         const p = (o.priority?.toLowerCase() as Priority) ?? "media";
         if (!priorityFilter.has(p)) return false;
         if (!stateFilter.has(o.state as OrderState)) return false;
+        if (needle && !o.id.toLowerCase().includes(needle)) return false;
         return true;
       })
       .map((o) => {
@@ -637,7 +642,7 @@ export function OrdenesPage() {
         };
       })
       .sort((a, b) => b.t - a.t);
-  }, [histOrders, priorityFilter, stateFilter]);
+  }, [histOrders, priorityFilter, stateFilter, histQ]);
 
   const {
     page: histPage,
@@ -996,6 +1001,21 @@ export function OrdenesPage() {
           action={
             <div className="flex items-center gap-2">
               <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={histQ}
+                  onChange={(e) => {
+                    setHistQ(e.target.value);
+                    // La lista cambia de tamaño: volver a la primera página en vez
+                    // de quedar parado en una que puede no tener los resultados.
+                    setHistPage(0);
+                  }}
+                  placeholder="Buscar orden..."
+                  aria-label="Buscar orden en el histórico"
+                  className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border bg-secondary/40 focus:outline-none focus:border-primary w-40"
+                />
+              </div>
               <button className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-border bg-secondary/40 hover:bg-secondary/60">
                 <Download className="w-3 h-3" />
                 Exportar
@@ -1043,7 +1063,9 @@ export function OrdenesPage() {
                 {filteredHist.length === 0 && (
                   <tr>
                     <td colSpan={10} className="py-6 text-center text-xs text-muted-foreground">
-                      Sin registros para el rango seleccionado
+                      {histQ.trim()
+                        ? "Ninguna orden coincide con la búsqueda"
+                        : "Sin registros para el rango seleccionado"}
                     </td>
                   </tr>
                 )}
