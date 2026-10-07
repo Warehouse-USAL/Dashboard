@@ -83,6 +83,7 @@ type SortKey =
   | "physical"
   | "reserved"
   | "available"
+  | "priceCents"
   // Pendiente (vuelven con `blended_demand`): columnas "Dem. diaria"/"Cobertura".
   // | "dailyDemand"
   // | "coverageDays"
@@ -162,6 +163,20 @@ function fmtMoney(ars: number): string {
   if (ars >= 1_000_000) return `$${(ars / 1_000_000).toFixed(1)}M`;
   if (ars >= 1_000) return `$${(ars / 1_000).toFixed(0)}K`;
   return `$${Math.round(ars).toLocaleString("es-AR")}`;
+}
+
+/**
+ * Precio unitario exacto, con la moneda del producto. No usa `fmtMoney`: esa
+ * abrevia ($1.250 → "$1K"), que sirve para totales pero no para un precio.
+ */
+function fmtPrice(priceCents: number, currency: string): string {
+  if (priceCents <= 0) return "—";
+  try {
+    return (priceCents / 100).toLocaleString("es-AR", { style: "currency", currency });
+  } catch {
+    // moneda que Intl no reconoce: se muestra el número con el código al lado
+    return `${(priceCents / 100).toLocaleString("es-AR")} ${currency}`;
+  }
 }
 
 function fmtCoverage(days: number): string {
@@ -323,6 +338,9 @@ function InventarioPage() {
           break;
         case "available":
           cmp = a.available - b.available;
+          break;
+        case "priceCents":
+          cmp = a.priceCents - b.priceCents;
           break;
         // Pendiente (vuelven con `blended_demand`): columnas "Dem. diaria"/"Cobertura".
         // case "dailyDemand":
@@ -515,6 +533,9 @@ function InventarioPage() {
                 <SortTh k="available" active={sortKey} dir={sortDir} onSort={toggleSort} right>
                   Disponible
                 </SortTh>
+                <SortTh k="priceCents" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Precio
+                </SortTh>
                 {/* Pendiente: "Dem. diaria" y "Cobertura" vuelven cuando `product.restock`
                     exponga `blended_demand`. Antes usaban la Ventana de riesgo configurable.
                 <SortTh k="dailyDemand" active={sortKey} dir={sortDir} onSort={toggleSort} right>
@@ -557,7 +578,7 @@ function InventarioPage() {
               ))}
               {filteredTable.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center py-10 text-xs text-muted-foreground">
+                  <td colSpan={11} className="text-center py-10 text-xs text-muted-foreground">
                     Sin resultados
                   </td>
                 </tr>
@@ -827,6 +848,9 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
         {p.reserved}
       </td>
       <td className="py-3 px-2 text-xs text-right tabular-nums font-semibold">{p.available}</td>
+      <td className="py-3 px-2 text-xs text-right tabular-nums whitespace-nowrap">
+        {fmtPrice(p.priceCents, p.currency)}
+      </td>
       {/* Pendiente: celdas "Dem. diaria" y "Cobertura" (ver encabezado de la tabla).
       <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
         {fmtDemand(p.riskDailyDemand)}
