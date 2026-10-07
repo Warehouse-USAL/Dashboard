@@ -70,7 +70,10 @@ function isCronDemandQuery(body: Body): boolean {
 }
 
 function page<T>(items: T[]) {
-  return { items, pagination: { page: 0, size: 200, total_elements: items.length, total_pages: 1 } };
+  return {
+    items,
+    pagination: { page: 0, size: 200, total_elements: items.length, total_pages: 1 },
+  };
 }
 
 /** Monta los handlers del backend y devuelve los bodies de /query/orders que llegaron. */
@@ -143,7 +146,9 @@ describe("useInventoryMetrics — reposición del cron", () => {
     // Sólo C: A/B/D tienen demanda y E no tiene stock físico.
     expect(result.current.kpis.deadStockValue).toBeCloseTo((50 * 1000) / 100);
     // valor total = Σ físico × precio (incluye lo reservado)
-    expect(result.current.kpis.totalValue).toBeCloseTo((5 * 1000 + 10 * 2000 + 50 * 1000 + 20 * 500) / 100);
+    expect(result.current.kpis.totalValue).toBeCloseTo(
+      (5 * 1000 + 10 * 2000 + 50 * 1000 + 20 * 500) / 100,
+    );
   });
 
   it("dead stock se mide con el mismo criterio y ventana que el cron: no canceladas, creadas en los últimos 60 días", async () => {

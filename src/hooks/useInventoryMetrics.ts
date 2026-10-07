@@ -141,8 +141,7 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
   // Ventana de dead stock: la misma que usa el cron para su demanda de largo
   // plazo. Congelada al montar, como el resto de las ventanas de este archivo.
   const deadStockWindow = useMemo(
-    () =>
-      ordersWindow({ from: Date.now() - RESTOCK_LONG_DAYS * 86_400_000, to: Date.now() }),
+    () => ordersWindow({ from: Date.now() - RESTOCK_LONG_DAYS * 86_400_000, to: Date.now() }),
     [],
   );
   // "Última orden" es un hecho absoluto y no debería moverse con el período

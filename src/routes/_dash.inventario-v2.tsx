@@ -19,15 +19,7 @@ import {
   RefreshCw,
   CalendarIcon,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useInventoryMetrics, type EnrichedProduct } from "@/hooks/useInventoryMetrics";
 import type { FrontendRestock } from "@/lib/api";
 import { usePagedList } from "@/hooks/usePagination";
@@ -248,10 +240,7 @@ function InventarioPage() {
   // NOT drive `status` (viene de la recomendación diaria del cron) ni el KPI de
   // dead stock, que usa la ventana fija del cron (deadStockDays) para que un
   // período corto no haga parpadear las alertas. See useInventoryMetrics.
-  const { products, kpis, zoneOccupancy, deadStockDays } = useInventoryMetrics(
-    period,
-    customRange,
-  );
+  const { products, kpis, zoneOccupancy, deadStockDays } = useInventoryMetrics(period, customRange);
 
   const dataPeriod: DataPeriodId = useMemo(() => {
     if (period !== "custom") return period;
