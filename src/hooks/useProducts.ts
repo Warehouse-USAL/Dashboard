@@ -9,10 +9,13 @@ const INITIAL_PRODUCTS: FrontendProduct[] = mockStock.map((s) => ({
   zone: s.zone,
   available: s.available,
   reserved: 0,
+  physical: s.available,
   minimum: 0,
   priceCents: 0,
   currency: "ARS",
-  status: s.status as FrontendProduct["status"],
+  restock: null,
+  // Los mocks de dashboard-data siguen usando el vocabulario viejo ("bajo").
+  status: s.status === "bajo" ? "a_reponer" : (s.status as FrontendProduct["status"]),
 }));
 
 export function useProducts() {

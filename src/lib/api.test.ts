@@ -217,7 +217,7 @@ describe("getOrders - fallback", () => {
   });
 });
 describe("getProducts", () => {
-  it("obtiene productos y calcula correctamente ok, bajo y agotado", async () => {
+  it("obtiene productos y resuelve ok, a reponer y agotado desde la recomendación del cron", async () => {
     server.use(
       http.get("*/products", () =>
         HttpResponse.json({
@@ -229,8 +229,10 @@ describe("getProducts", () => {
               stock: {
                 available: 10,
                 reserved: 2,
+                physical: 12,
                 minimumStock: 5,
               },
+              restock: null,
               price: {
                 amount_cents: 12500,
                 currency: "ARS",
@@ -247,7 +249,16 @@ describe("getProducts", () => {
               stock: {
                 available: 3,
                 reserved: 1,
+                physical: 4,
                 minimumStock: 5,
+              },
+              restock: {
+                should_restock: true,
+                suggested_quantity: 40,
+                reorder_point: 25.5,
+                target_stock: 60.2,
+                inventory_position: 3,
+                calculated_at: "2026-10-07T06:00:00Z",
               },
               price: {
                 amount_cents: 8900,
@@ -265,8 +276,10 @@ describe("getProducts", () => {
               stock: {
                 available: 0,
                 reserved: 4,
+                physical: 4,
                 minimumStock: 5,
               },
+              restock: null,
               price: {
                 amount_cents: 15000,
                 currency: "ARS",
@@ -289,9 +302,11 @@ describe("getProducts", () => {
         sku: "SKU-OK",
         available: 10,
         reserved: 2,
+        physical: 12,
         minimum: 5,
         priceCents: 12500,
         currency: "ARS",
+        restock: null,
         status: "ok",
       }),
       expect.objectContaining({
@@ -299,22 +314,93 @@ describe("getProducts", () => {
         sku: "SKU-BAJO",
         available: 3,
         reserved: 1,
+        physical: 4,
         minimum: 5,
         priceCents: 8900,
         currency: "ARS",
-        status: "bajo",
+        // restock llega en snake_case y se expone en camelCase
+        restock: {
+          shouldRestock: true,
+          suggestedQuantity: 40,
+          reorderPoint: 25.5,
+          targetStock: 60.2,
+          inventoryPosition: 3,
+          calculatedAt: "2026-10-07T06:00:00Z",
+        },
+        status: "a_reponer",
       }),
       expect.objectContaining({
         id: "P-003",
         sku: "SKU-AGOTADO",
         available: 0,
         reserved: 4,
+        physical: 4,
         minimum: 5,
         priceCents: 15000,
         currency: "ARS",
+        restock: null,
         status: "agotado",
       }),
     ]);
+  });
+
+  /** Respuesta de GET /products con un único producto, para los casos de status. */
+  function mockProduct(overrides: Record<string, unknown>) {
+    server.use(
+      http.get("*/products", () =>
+        HttpResponse.json({
+          products: [{ id: "P-X", sku: "SKU-X", name: "Producto X", ...overrides }],
+        }),
+      ),
+    );
+  }
+
+  const RESTOCK_SI = {
+    should_restock: true,
+    suggested_quantity: 10,
+    reorder_point: 20,
+    target_stock: 50,
+    inventory_position: 0,
+    calculated_at: "2026-10-07T06:00:00Z",
+  };
+
+  it("agotado tiene prioridad sobre a reponer, pero la recomendación se conserva", async () => {
+    // Pueden ser ciertos a la vez: status sólo resuelve el badge, y quien cuenta
+    // o filtra tiene que mirar restock.shouldRestock (ver useInventoryMetrics).
+    mockProduct({ stock: { available: 0, reserved: 5, physical: 5, min: 1 }, restock: RESTOCK_SI });
+
+    const [p] = await getProducts();
+
+    expect(p.status).toBe("agotado");
+    expect(p.restock?.shouldRestock).toBe(true);
+  });
+
+  it("el stock mínimo manual ya no define el estado: bajo el mínimo y sin recomendación es ok", async () => {
+    mockProduct({ stock: { available: 3, reserved: 0, physical: 3, min: 50 }, restock: null });
+
+    const [p] = await getProducts();
+
+    expect(p.status).toBe("ok");
+  });
+
+  it("una recomendación que dice no reponer mantiene el producto en ok", async () => {
+    mockProduct({
+      stock: { available: 30, reserved: 0, physical: 30, min: 50 },
+      restock: { ...RESTOCK_SI, should_restock: false, suggested_quantity: 0 },
+    });
+
+    const [p] = await getProducts();
+
+    expect(p.status).toBe("ok");
+    expect(p.restock?.shouldRestock).toBe(false);
+  });
+
+  it("si el backend no manda stock.physical, lo reconstruye como disponible + reservado", async () => {
+    mockProduct({ stock: { available: 7, reserved: 3, min: 1 } });
+
+    const [p] = await getProducts();
+
+    expect(p.physical).toBe(10);
   });
 });
 it("devuelve los productos mock cuando el backend responde con error", async () => {
@@ -338,7 +424,10 @@ it("devuelve los productos mock cuando el backend responde con error", async () 
       expect.objectContaining({
         sku: "SKU-C019",
         available: 9,
-        status: "bajo",
+        physical: 9,
+        restock: null,
+        // el mock de dashboard-data sigue diciendo "bajo": se traduce a "a_reponer"
+        status: "a_reponer",
       }),
       expect.objectContaining({
         sku: "SKU-E308",

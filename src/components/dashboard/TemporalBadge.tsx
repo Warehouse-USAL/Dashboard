@@ -1,9 +1,10 @@
-import { Calendar, Gauge, Radio } from "lucide-react";
+import { Calendar, Clock, Gauge, Radio } from "lucide-react";
 import type { Temporality } from "@/lib/temporality";
 
 /**
- * Rótulo de "a qué momento se refiere este dato" — LIVE, un período elegido, o
- * la Ventana de riesgo de Configuración. Independiente de `SourceBadge`, que
+ * Rótulo de "a qué momento se refiere este dato" — LIVE, un período elegido, la
+ * corrida diaria del cron de reposición o su ventana fija de demanda.
+ * Independiente de `SourceBadge`, que
  * responde una pregunta distinta (¿esto vino del backend?); un panel puede
  * llevar los dos a la vez: en vivo pero mockeado, por ejemplo.
  */
@@ -41,13 +42,25 @@ export function TemporalBadge({
     );
   }
 
+  if (value.kind === "daily-run") {
+    return (
+      <span
+        title="Recomendación que el backend calcula una vez por día. Es una foto: no se mueve con el stock en vivo."
+        className={`${base} border-sky-500/30 bg-sky-500/10 text-sky-500 ${className}`}
+      >
+        <Clock className="w-3 h-3 shrink-0" />
+        Cron diario
+      </span>
+    );
+  }
+
   return (
     <span
-      title="Agregado sobre la Ventana de riesgo configurada en Configuración — no depende del período elegido arriba."
+      title="Agregado sobre la ventana fija de demanda del cron de reposición. No es configurable ni depende del período elegido arriba."
       className={`${base} border-amber-500/30 bg-amber-500/10 text-amber-500 ${className}`}
     >
       <Gauge className="w-3 h-3 shrink-0" />
-      Ventana de riesgo: {value.days}d
+      Últimos {value.days}d
     </span>
   );
 }
