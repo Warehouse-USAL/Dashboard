@@ -110,4 +110,14 @@ describe("Órdenes — integración con el backend mockeado (MSW)", () => {
     expect(within(colaTable()).getByText("ORD-1002")).toBeInTheDocument();
     expect(within(colaTable()).queryByText("ORD-1001")).not.toBeInTheDocument();
   });
+
+  it("una orden activa enterrada más allá de la página 0 de GET /orders igual aparece en Cola", async () => {
+    renderPage();
+
+    // ORD-BURIED-ACTIVE está en la posición 55 del fixture (54 filas de ruido
+    // completed antes). GET /orders sin status (page 0, size 50) nunca la trae
+    // — el bug real. Cola usa useActiveOrders(), que pide status=pending aparte
+    // y ahí es la orden #2 (junto con ORD-1002), sin ningún tope de por medio.
+    expect(await within(colaTable()).findByText("ORD-BURIED-ACTIVE")).toBeInTheDocument();
+  });
 });

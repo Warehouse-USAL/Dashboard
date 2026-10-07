@@ -37,12 +37,13 @@ import { useQuery } from "@tanstack/react-query";
 import { getAllPositions } from "@/lib/api";
 import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
-import { useOrders } from "@/hooks/useOrders";
+import { useActiveOrders } from "@/hooks/useOrders";
+import { useOrderStats } from "@/hooks/useOrderStats";
 import { useProducts } from "@/hooks/useProducts";
 import { useInventoryMetrics } from "@/hooks/useInventoryMetrics";
 import { useFleetMetrics } from "@/hooks/useFleetMetrics";
 import { formatDuration } from "@/lib/metrics-api";
-import { periodLabel, periodToBounds, withinBounds, type PeriodId } from "@/lib/dateRange";
+import { periodLabel, type PeriodId } from "@/lib/dateRange";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
@@ -75,6 +76,11 @@ const alertIconMap: Record<string, React.ComponentType<{ className?: string }>> 
   "alert-triangle": AlertTriangle,
 };
 
+// useOrderStats() exige un umbral de SLA aunque Home no muestre slaPct — sólo
+// se usa para esa consulta interna que acá no se lee. Mismo valor que Órdenes
+// (_dash.ordenes-v2.tsx), para no inventar un segundo número sin sentido.
+const SLA_MINUTES = 5;
+
 function HomePage() {
   const { data: rovers } = useVehicles();
   const {
@@ -86,7 +92,10 @@ function HomePage() {
     to: roversTo,
     total: roversTotal,
   } = usePagedList(rovers, 10);
-  const { data: orders } = useOrders();
+  // Sólo para "Órdenes en proceso": useOrders() sin status traía una página
+  // de 50 sin orden garantizado, y una orden activa nueva podía quedar
+  // fuera. Ver getActiveOrders() en lib/api.ts.
+  const { data: activeOrders } = useActiveOrders();
   const { data: products } = useProducts();
   const [period, setPeriod] = useState<PeriodId>("7d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
@@ -97,6 +106,12 @@ function HomePage() {
   // Mismo hook que usa Vehículos — así MTBF coincide entre las dos páginas en
   // vez de que Home muestre "sin datos" mientras Vehículos sí tiene el número.
   const fleet = useFleetMetrics(period, customRange);
+  // Mismo hook que usa Órdenes para "Tasa de cumplimiento" — antes Home
+  // recalculaba lo mismo a mano sobre useOrders() (capado a 50, sin orden
+  // garantizado) y encima devolvía "100%" cuando no había datos en vez de
+  // "sin datos". Reusarlo hace que el número coincida entre las dos páginas
+  // y hereda el fallback correcto (compliancePct === null).
+  const stats = useOrderStats(period, customRange, SLA_MINUTES * 60_000);
   const { data: positions = [] } = useQuery({
     queryKey: ["warehouse-positions"],
     queryFn: getAllPositions,
@@ -113,31 +128,31 @@ function HomePage() {
     return `${Math.round((totalStock / totalCapacity) * 100)}%`;
   }, [positions]);
 
+  // Nombre del producto en vez del código de SKU: el código solo (ORD-A102)
+  // no dice nada de un vistazo, mientras que el nombre sí. El sku va como
+  // cuarto elemento por si hace falta para key/tooltip.
   const topSkus = useMemo(
     () =>
       [...enrichedProducts]
         .filter((p) => p.dailyDemand > 0)
         .sort((a, b) => b.dailyDemand - a.dailyDemand)
         .slice(0, 4)
-        .map((p) => [p.sku, p.dailyDemand, p.totalUnits] as const),
+        .map((p) => [p.name, p.dailyDemand, p.totalUnits, p.sku] as const),
     [enrichedProducts],
   );
 
-  const inProcess = orders.filter((o) => o.state === "en proceso").length;
-  const totalOrders = orders.length;
+  const inProcess = activeOrders.filter((o) => o.state === "en proceso").length;
+  // Antes mostraba orders.length ("X totales") — pero `orders` viene de
+  // useOrders() sin status, capado a 50 filas sin orden garantizado, así que
+  // ese "total" nunca fue exacto (con cientos de órdenes reales, mostraba
+  // como mucho 50). activeOrders.length sí es exacto (recorre todas las
+  // páginas de pending/in_progress), así que el subtítulo pasa a contar
+  // activas en vez de un "total" que nunca lo fue.
+  const totalActiveOrders = activeOrders.length;
 
   // Mismo cálculo que "Cumplimiento" en Órdenes (completadas vs canceladas,
   // acotado por período, 100% cuando no hay datos) — antes esto se calculaba
   // sobre TODAS las órdenes sin fecha, así que nunca iba a coincidir.
-  const dateBounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
-  const compliance = useMemo(() => {
-    const dateFilteredOrders = orders.filter((o) => withinBounds(o.createdAt, dateBounds));
-    const completadas = dateFilteredOrders.filter((o) => o.state === "completada").length;
-    const canceladas = dateFilteredOrders.filter((o) => o.state === "cancelada").length;
-    return completadas + canceladas > 0
-      ? Math.round((completadas / (completadas + canceladas)) * 100)
-      : 100;
-  }, [orders, dateBounds]);
 
   const inventarioValor = useMemo(() => {
     const total = products.reduce((sum, p) => sum + (p.available * p.priceCents) / 100, 0);
@@ -199,6 +214,7 @@ function HomePage() {
           }
           accent="primary"
           temporal={periodTemporal(periodLabel(period, customRange))}
+          compact
         />
         <KpiCard
           label="Ocupación almacén"
@@ -212,7 +228,7 @@ function HomePage() {
           label="Órdenes en proceso"
           value={String(inProcess)}
           icon={Activity}
-          trend={`${totalOrders} totales`}
+          trend={`${totalActiveOrders} activas`}
           accent="accent"
           temporal={live()}
         />
@@ -226,9 +242,13 @@ function HomePage() {
         />
         <KpiCard
           label="Cumplimiento"
-          value={`${compliance}%`}
+          value={stats.compliancePct !== null ? `${stats.compliancePct}%` : "—"}
           icon={CheckCircle2}
-          trend={`completadas vs canceladas · ${periodLabel(period, customRange)}`}
+          trend={
+            stats.compliancePct !== null
+              ? `completadas vs canceladas · ${periodLabel(period, customRange)}`
+              : "Sin completadas ni canceladas en el período"
+          }
           accent="primary"
           temporal={periodTemporal(periodLabel(period, customRange))}
         />
@@ -360,14 +380,19 @@ function HomePage() {
           action={<TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />}
         >
           <div className="space-y-2">
-            {topSkus.map(([sku, demand]) => {
+            {topSkus.map(([name, demand, , sku]) => {
               const max = topSkus[0]?.[1] ?? 1;
               return (
                 <div key={sku} className="p-3 rounded-lg bg-secondary/30 border border-border">
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-xs font-bold">{sku}</span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {demand < 1 ? demand.toFixed(1) : Math.round(demand)} u/d
+                  <div className="flex justify-between items-center gap-2 mb-1.5">
+                    <span className="text-xs font-bold truncate flex-1 min-w-0" title={name}>
+                      {name}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground shrink-0">
+                      {/* 2 decimales, no 1: con 1 sólo, SKUs con demanda real
+                          distinta redondeaban al mismo número en pantalla
+                          mientras la barra (sin redondear) se veía distinta. */}
+                      {demand < 1 ? demand.toFixed(2) : Math.round(demand)} u/d
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
@@ -477,6 +502,10 @@ function KpiCard({
   accent,
   temporal,
   source = "live",
+  // Para valores de texto largo (p.ej. un nombre de producto) en vez de un
+  // número/porcentaje corto: letra más chica y hasta 2 líneas en vez de
+  // cortar a los primeros caracteres con "…", que dejaba el valor ilegible.
+  compact = false,
 }: {
   label: string;
   value: string;
@@ -485,6 +514,7 @@ function KpiCard({
   accent: "primary" | "accent" | "destructive";
   temporal: Temporality;
   source?: DataSource;
+  compact?: boolean;
 }) {
   const accentMap = {
     primary: "text-primary bg-primary/10",
@@ -508,7 +538,16 @@ function KpiCard({
         </div>
       </div>
       <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
-      <p className="text-2xl font-bold tracking-tight truncate">{value}</p>
+      <p
+        className={
+          compact
+            ? "text-base font-bold tracking-tight leading-snug line-clamp-2"
+            : "text-2xl font-bold tracking-tight truncate"
+        }
+        title={value}
+      >
+        {value}
+      </p>
       <p className="text-[11px] text-muted-foreground mt-1">{trend}</p>
     </div>
   );
