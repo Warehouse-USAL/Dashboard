@@ -3,12 +3,22 @@ import { useQuery } from "@tanstack/react-query";
 import type { DateRange } from "react-day-picker";
 import { getAllPositions, getProducts } from "@/lib/api";
 import { stock as mockStock } from "@/lib/dashboard-data";
-import type { FrontendProduct } from "@/lib/api";
+import type { FrontendProduct, FrontendRestock } from "@/lib/api";
 import { periodToBounds, type PeriodId } from "@/lib/dateRange";
 import { ordersWindow, queryEntity } from "@/lib/query-api";
-import { useRiskWindow } from "@/hooks/useRiskWindow";
 
-export type InvStatus = "disponible" | "riesgo" | "quiebre" | "dead";
+/**
+ * Ventana de demanda larga del cron de reposición (`RESTOCK_LONG_DAYS` del
+ * servicio `restock-cron` del backend, default 60). Dead stock se mide sobre
+ * esta misma ventana, así que "sin demanda" significa lo mismo acá que para el
+ * cron (demanda de largo plazo = 0).
+ *
+ * No es configurable: el backend no expone los parámetros con los que corrió el
+ * cron, así que si alguien cambia `RESTOCK_LONG_DAYS` hay que actualizar esta
+ * constante a mano. Pendiente pedirle que guarde `params_used` en
+ * `product.restock`.
+ */
+export const RESTOCK_LONG_DAYS = 60;
 
 export type EnrichedProduct = {
   sku: string;
@@ -17,34 +27,56 @@ export type EnrichedProduct = {
   positionDisplay: string;
   available: number;
   reserved: number;
+  /** Stock en el depósito (`stock.physical`). Sólo baja al completarse una orden. */
+  physical: number;
   minimum: number;
   priceCents: number;
   currency: string;
+  /** Estado único del producto, ya resuelto en `mapProduct` (api.ts). Sólo sirve
+   *  para el badge de la fila: "agotado" tiene prioridad sobre "a_reponer". Los
+   *  conteos y filtros usan `isDepleted`/`needsRestock`, que pueden ser ciertos a
+   *  la vez. */
+  status: FrontendProduct["status"];
+  /** Sin stock disponible (`available <= 0`). */
+  isDepleted: boolean;
+  /** El cron de reposición recomienda reponer (`restock.shouldRestock`). */
+  needsRestock: boolean;
+  /** Cantidad que sugiere el cron de reposición. `null` si el producto no tiene
+   *  recomendación todavía (cron sin correr o producto desactivado). */
+  suggestedQuantity: number | null;
+  /** Cuándo calculó el cron esa recomendación. Es una foto diaria, no un dato en vivo. */
+  restockCalculatedAt: string | null;
+  /** Recomendación completa (punto de reposición, stock objetivo, posición), para
+   *  explicar de dónde sale `suggestedQuantity`. `null` si no hay recomendación. */
+  restock: FrontendRestock | null;
   /** Acotada al período elegido (picker de "Top rotación") — sólo para ese
-   *  panel y para "Top SKU"/"Top SKUs" de Home. La tabla usa riskDailyDemand. */
+   *  panel y para "Top SKU"/"Top SKUs" de Home. */
   dailyDemand: number;
   /** Unidades totales pedidas en el período — no el promedio diario. */
   totalUnits: number;
-  /** Acotada al período — ver dailyDemand. La tabla usa riskCoverageDays. */
+  /** Acotada al período — ver dailyDemand. */
   coverageDays: number;
-  /** Acotada a la Ventana de riesgo (Configuración) — lo que muestran las
-   *  columnas "Dem. diaria"/"Cobertura" de la tabla, igual que "Estado" y los
-   *  KPIs de riesgo. Independiente del período elegido abajo. */
-  riskDailyDemand: number;
-  riskCoverageDays: number;
+  // Pendiente: las columnas "Dem. diaria"/"Cobertura" de la tabla vuelven cuando
+  // `product.restock` exponga `blended_demand` (la demanda combinada del cron).
+  // Antes salían de la Ventana de riesgo configurable, que ya no existe.
+  // riskDailyDemand: number;
+  // riskCoverageDays: number;
+  /** Stock físico × precio: lo reservado sigue siendo capital inmovilizado. */
   stockValue: number;
-  reqNeto: number;
   lastOrderDate: string | null;
   lastOrderDaysAgo: number | null;
-  invStatus: InvStatus;
 };
 
 export type InventoryKPIs = {
   totalValue: number;
-  skusAtRisk: number;
-  skusBreached: number;
-  avgCoverage: number;
+  /** Productos que el cron recomienda reponer (`needsRestock`), estén o no agotados. */
+  skusToRestock: number;
+  /** Productos sin stock disponible (`isDepleted`), los repongan o no. Se superpone con `skusToRestock`. */
+  skusDepleted: number;
   deadStockValue: number;
+  deadStockCount: number;
+  // Pendiente: vuelve con `blended_demand` — ver EnrichedProduct.
+  // avgCoverage: number;
 };
 
 const MOCK_PRODUCTS_INIT: FrontendProduct[] = mockStock.map((s) => ({
@@ -54,10 +86,13 @@ const MOCK_PRODUCTS_INIT: FrontendProduct[] = mockStock.map((s) => ({
   zone: s.zone,
   available: s.available,
   reserved: 0,
+  physical: s.available,
   minimum: 0,
   priceCents: 0,
   currency: "ARS",
-  status: s.status as FrontendProduct["status"],
+  restock: null,
+  // Los mocks de dashboard-data siguen usando el vocabulario viejo ("bajo").
+  status: s.status === "bajo" ? "a_reponer" : (s.status as FrontendProduct["status"]),
 }));
 
 /**
@@ -85,20 +120,12 @@ function dailyRate(totalQty: number, windowDays: number): number {
  * @param period Selected date-range filter (defaults to "30d" for callers that
  *   don't expose a picker). Drives `dailyDemand`/`coverageDays` on each product
  *   and "Top rotación" — the exploratory, period-scoped numbers. It does NOT
- *   drive `invStatus` (riesgo/quiebre/dead) or the risk-oriented KPIs
- *   (skusAtRisk/avgCoverage/deadStockValue): those use the separate, fixed
- *   "risk window" from useRiskWindow (config. en Configuración), on purpose —
- *   an alert that flips because someone picked "últimas 24h" to browse the
- *   table would be noise, not signal. See the comment further down where
- *   riskBounds/riskDemandMap are built.
+ *   drive `status` (viene de `product.restock`) ni el KPI de dead stock, que
+ *   usa la ventana fija del cron (RESTOCK_LONG_DAYS): una alerta que cambia
+ *   porque alguien eligió "últimas 24h" para explorar la tabla sería ruido.
  */
 export function useInventoryMetrics(period: PeriodId = "30d", customRange?: DateRange) {
   const bounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
-  const [riskWindowDays] = useRiskWindow();
-  const riskBounds = useMemo(() => {
-    const now = Date.now();
-    return { from: now - riskWindowDays * 86_400_000, to: now };
-  }, [riskWindowDays]);
 
   const { data: products = MOCK_PRODUCTS_INIT } = useQuery({
     queryKey: ["products"],
@@ -111,7 +138,13 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
   // por ventana, en vez de traer órdenes crudas y sumarlas acá (ver
   // getOrders("completed") de antes, capado a 50 filas sin orden garantizado).
   const periodOrdersWindow = useMemo(() => ordersWindow(bounds), [bounds]);
-  const riskOrdersWindow = useMemo(() => ordersWindow(riskBounds), [riskBounds]);
+  // Ventana de dead stock: la misma que usa el cron para su demanda de largo
+  // plazo. Congelada al montar, como el resto de las ventanas de este archivo.
+  const deadStockWindow = useMemo(
+    () =>
+      ordersWindow({ from: Date.now() - RESTOCK_LONG_DAYS * 86_400_000, to: Date.now() }),
+    [],
+  );
   // "Última orden" es un hecho absoluto y no debería moverse con el período
   // elegido (ver comentario más abajo en lastOrderMap) — se pide con la
   // ventana más ancha que el backend admite (92 días) en vez de la del picker
@@ -142,13 +175,23 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
     refetchInterval: 60_000,
   });
 
-  const { data: riskDemand } = useQuery({
+  // Demanda con el criterio del cron (RFC_Metricas_Calculadas.md §4.2): unidades
+  // de órdenes NO canceladas, contadas por fecha de creación. Difiere a propósito
+  // de `demandQuery` (sólo COMPLETED), que es la demanda exploratoria del período.
+  const { data: deadStockDemand } = useQuery({
     queryKey: [
-      "inventory-demand-risk",
-      riskOrdersWindow.from.toISOString(),
-      riskOrdersWindow.to.toISOString(),
+      "inventory-demand-restock-window",
+      deadStockWindow.from.toISOString(),
+      deadStockWindow.to.toISOString(),
     ],
-    queryFn: () => queryEntity<SkuDemand>("orders", demandQuery(riskOrdersWindow)),
+    queryFn: () =>
+      queryEntity<SkuDemand>("orders", {
+        filters: [{ field: "status", op: "ne", value: "CANCELLED" }, ...deadStockWindow.filters],
+        unwind: "items",
+        group_by: [{ field: "items.sku", as: "sku" }],
+        aggregates: [{ op: "sum", field: "items.quantity", as: "qty" }],
+        size: 200,
+      }),
     refetchInterval: 60_000,
   });
 
@@ -185,9 +228,8 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
     // divide por el total de días de la ventana, no por días activos.
     const demandMap = new Map((periodDemand?.items ?? []).map((r) => [r.sku, r.qty]));
 
-    // Same aggregation, but bounded by the fixed risk window — feeds
-    // riskCoverageDays below, which is what actually decides invStatus.
-    const riskDemandMap = new Map((riskDemand?.items ?? []).map((r) => [r.sku, r.qty]));
+    // Unidades por SKU en la ventana del cron — decide dead stock más abajo.
+    const deadStockDemandMap = new Map((deadStockDemand?.items ?? []).map((r) => [r.sku, r.qty]));
 
     // Last-order date per SKU, acotado a los últimos 92 días (el máximo que
     // el backend admite en una consulta agregada) en vez de "todo el
@@ -215,26 +257,25 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
       }
     });
 
-    // riskCoverageDays per SKU (fixed risk window) — used only to decide
-    // invStatus/avgCoverage below, never returned on EnrichedProduct. The
-    // table's own `coverageDays` (below) stays on the período picker.
-    const riskCoverageBySku = new Map<
-      string,
-      { riskDailyDemand: number; riskCoverageDays: number }
-    >();
+    // Pendiente (vuelve con `blended_demand`): cobertura por SKU sobre la ventana
+    // de riesgo configurable, que alimentaba las columnas "Dem. diaria"/"Cobertura"
+    // y el KPI "Cobertura promedio".
+    // const riskCoverageBySku = new Map<
+    //   string,
+    //   { riskDailyDemand: number; riskCoverageDays: number }
+    // >();
 
     const enriched: EnrichedProduct[] = products.map((p) => {
       const totalUnits = demandMap.get(p.sku) ?? 0;
       const dailyDemand = dailyRate(totalUnits, periodOrdersWindow.days);
       const coverageDays = dailyDemand > 0 ? p.available / dailyDemand : p.available > 0 ? 9999 : 0;
 
-      const riskDailyDemand = dailyRate(riskDemandMap.get(p.sku) ?? 0, riskOrdersWindow.days);
-      const riskCoverageDays =
-        riskDailyDemand > 0 ? p.available / riskDailyDemand : p.available > 0 ? 9999 : 0;
-      riskCoverageBySku.set(p.sku, { riskDailyDemand, riskCoverageDays });
+      // const riskDailyDemand = dailyRate(riskDemandMap.get(p.sku) ?? 0, riskOrdersWindow.days);
+      // const riskCoverageDays =
+      //   riskDailyDemand > 0 ? p.available / riskDailyDemand : p.available > 0 ? 9999 : 0;
+      // riskCoverageBySku.set(p.sku, { riskDailyDemand, riskCoverageDays });
 
-      const stockValue = (p.available * p.priceCents) / 100;
-      const reqNeto = Math.max(0, p.minimum - p.available);
+      const stockValue = (p.physical * p.priceCents) / 100;
       const lastOrderDate = lastOrderMap.get(p.sku) ?? null;
       const lastOrderTs = lastOrderDate ? new Date(lastOrderDate).getTime() : 0;
       const lastOrderDaysAgo = lastOrderDate ? (now - lastOrderTs) / 86_400_000 : null;
@@ -248,21 +289,6 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
       // zone letter used for occupancy grouping
       const zone = pos?.zone_code ?? p.zone.split("-")[0] ?? "—";
 
-      // Riesgo/dead/disponible decided off riskCoverageDays and riskBounds
-      // (ventana de riesgo, config), NOT el período-scoped coverageDays de
-      // arriba — ver doc comment de useInventoryMetrics. Quiebre stays a
-      // pure stock check either way.
-      let invStatus: InvStatus;
-      if (p.available === 0) {
-        invStatus = "quiebre";
-      } else if (lastOrderTs === 0 || lastOrderTs < riskBounds.from) {
-        invStatus = riskCoverageDays >= 90 ? "dead" : "disponible";
-      } else if (riskCoverageDays < 5) {
-        invStatus = "riesgo";
-      } else {
-        invStatus = "disponible";
-      }
-
       return {
         sku: p.sku,
         name: p.name,
@@ -270,43 +296,53 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
         positionDisplay,
         available: p.available,
         reserved: p.reserved,
+        physical: p.physical,
         minimum: p.minimum,
         priceCents: p.priceCents,
         currency: p.currency,
+        status: p.status,
+        isDepleted: p.available <= 0,
+        needsRestock: p.restock?.shouldRestock ?? false,
+        suggestedQuantity: p.restock?.suggestedQuantity ?? null,
+        restockCalculatedAt: p.restock?.calculatedAt ?? null,
+        restock: p.restock,
         dailyDemand,
         totalUnits,
         coverageDays,
-        riskDailyDemand,
-        riskCoverageDays,
         stockValue,
-        reqNeto,
         lastOrderDate,
         lastOrderDaysAgo,
-        invStatus,
       };
     });
 
+    // Dead stock: hay stock físico y ningún pedido no cancelado en la ventana del
+    // cron. Es sólo un KPI — no marca filas. Mientras la consulta no respondió no
+    // se puede afirmar que no hay demanda, así que no se cuenta ninguno (si no,
+    // todo el catálogo aparecería como dead stock hasta que lleguen los datos).
+    const deadStock = deadStockDemand
+      ? enriched.filter((p) => p.physical > 0 && (deadStockDemandMap.get(p.sku) ?? 0) <= 0)
+      : [];
+
     const totalValue = enriched.reduce((a, p) => a + p.stockValue, 0);
-    const skusAtRisk = enriched.filter((p) => p.invStatus === "riesgo").length;
-    const skusBreached = enriched.filter((p) => p.invStatus === "quiebre").length;
-    const deadStockValue = enriched
-      .filter((p) => p.invStatus === "dead")
-      .reduce((a, p) => a + p.stockValue, 0);
-    // Aggregate coverage, same fixed risk window as invStatus above — kept
-    // consistent with "SKUs en riesgo" rather than mixing in the período pick.
-    const finiteRiskCovers = [...riskCoverageBySku.values()].filter(
-      (r) => r.riskDailyDemand > 0 && r.riskCoverageDays < 9999,
-    );
-    const avgCoverage = finiteRiskCovers.length
-      ? finiteRiskCovers.reduce((a, r) => a + r.riskCoverageDays, 0) / finiteRiskCovers.length
-      : 0;
+    // Se cuentan los dos hechos por separado, no por `status`: un producto agotado
+    // que además hay que reponer cuenta en los dos (y siempre coincide con el cron).
+    const skusToRestock = enriched.filter((p) => p.needsRestock).length;
+    const skusDepleted = enriched.filter((p) => p.isDepleted).length;
+    const deadStockValue = deadStock.reduce((a, p) => a + p.stockValue, 0);
+    // Pendiente (vuelve con `blended_demand`): promedio de cobertura por SKU.
+    // const finiteRiskCovers = [...riskCoverageBySku.values()].filter(
+    //   (r) => r.riskDailyDemand > 0 && r.riskCoverageDays < 9999,
+    // );
+    // const avgCoverage = finiteRiskCovers.length
+    //   ? finiteRiskCovers.reduce((a, r) => a + r.riskCoverageDays, 0) / finiteRiskCovers.length
+    //   : 0;
 
     const kpis: InventoryKPIs = {
       totalValue,
-      skusAtRisk,
-      skusBreached,
-      avgCoverage,
+      skusToRestock,
+      skusDepleted,
       deadStockValue,
+      deadStockCount: deadStock.length,
     };
 
     // Zone occupancy from real position data: Σ current_stock / Σ maximum_capacity per zone
@@ -322,16 +358,6 @@ export function useInventoryMetrics(period: PeriodId = "30d", customRange?: Date
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([zone, { stock, capacity }]) => ({ zone, stock, capacity }));
 
-    return { products: enriched, kpis, zoneOccupancy, riskWindowDays };
-  }, [
-    products,
-    periodDemand,
-    riskDemand,
-    lastOrders,
-    positions,
-    riskWindowDays,
-    riskBounds,
-    periodOrdersWindow.days,
-    riskOrdersWindow.days,
-  ]);
+    return { products: enriched, kpis, zoneOccupancy, deadStockDays: RESTOCK_LONG_DAYS };
+  }, [products, periodDemand, deadStockDemand, lastOrders, positions, periodOrdersWindow.days]);
 }

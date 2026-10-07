@@ -16,17 +16,35 @@ export type FrontendOrder = {
   cancelReason?: string;
 };
 
+/**
+ * Recomendación diaria de reposición (`product.restock`). La calcula el cron del
+ * backend una vez por día: es una foto a la hora de `calculatedAt`, no un valor
+ * en vivo. Vale `null` si el cron nunca corrió o el producto está desactivado.
+ */
+export type FrontendRestock = {
+  shouldRestock: boolean;
+  suggestedQuantity: number;
+  reorderPoint: number;
+  targetStock: number;
+  inventoryPosition: number;
+  calculatedAt: string;
+};
+
 export type FrontendProduct = {
   id: string;
   sku: string;
   name: string;
   zone: string;
+  /** Libre para órdenes nuevas: físico − reservado. */
   available: number;
   reserved: number;
+  /** Lo que hay en el depósito. Sólo baja cuando una orden se completa. */
+  physical: number;
   minimum: number;
   priceCents: number;
   currency: string;
-  status: "ok" | "bajo" | "agotado";
+  restock: FrontendRestock | null;
+  status: "ok" | "a_reponer" | "agotado";
 };
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
@@ -280,11 +298,20 @@ interface BackendProduct {
     | {
         available?: number;
         reserved?: number;
+        physical?: number;
         minimumStock?: number;
         minimum_stock?: number;
         min?: number; // RFC field name
       }
     | number;
+  restock?: {
+    should_restock: boolean;
+    suggested_quantity: number;
+    reorder_point: number;
+    target_stock: number;
+    inventory_position: number;
+    calculated_at: string;
+  } | null;
   available?: number;
   location?: {
     zone?: string;
@@ -304,7 +331,18 @@ function mapProduct(p: BackendProduct): FrontendProduct {
 
   const available = stockObj?.available ?? stockNum ?? p.available ?? 0;
   const reserved = stockObj?.reserved ?? 0;
+  const physical = stockObj?.physical ?? available + reserved;
   const minimum = stockObj?.minimumStock ?? stockObj?.minimum_stock ?? stockObj?.min ?? 0;
+  const restock: FrontendRestock | null = p.restock
+    ? {
+        shouldRestock: p.restock.should_restock,
+        suggestedQuantity: p.restock.suggested_quantity,
+        reorderPoint: p.restock.reorder_point,
+        targetStock: p.restock.target_stock,
+        inventoryPosition: p.restock.inventory_position,
+        calculatedAt: p.restock.calculated_at,
+      }
+    : null;
 
   const priceCents = p.price?.amount_cents ?? 0;
   const currency = p.price?.currency ?? "ARS";
@@ -313,8 +351,15 @@ function mapProduct(p: BackendProduct): FrontendProduct {
     ? `${p.location.zone_code}-${p.location.number_line ?? "?"}`
     : [p.location?.zone, p.location?.line].filter(Boolean).join("-");
 
+  // Agotado se mide sobre el disponible (no el físico): es lo mismo que usa el
+  // cron para reponer y lo que el backend valida al crear una orden. "A reponer"
+  // es la recomendación del cron; sin ella (restock null) no hay forma de saber
+  // otra cosa, así que cae en "ok". El stock mínimo manual ya no interviene.
+  // Es un único valor con prioridad (agotado primero), pensado para el badge de
+  // una fila: "agotado" y "a reponer" pueden ser ciertos a la vez. Quien cuente o
+  // filtre tiene que mirar `available` y `restock.shouldRestock`, no este campo.
   const status: FrontendProduct["status"] =
-    available === 0 ? "agotado" : available <= minimum ? "bajo" : "ok";
+    available <= 0 ? "agotado" : restock?.shouldRestock ? "a_reponer" : "ok";
 
   return {
     id: p.id ?? p.sku,
@@ -323,9 +368,11 @@ function mapProduct(p: BackendProduct): FrontendProduct {
     zone: zone || "—",
     available,
     reserved,
+    physical,
     minimum,
     priceCents,
     currency,
+    restock,
     status,
   };
 }
@@ -588,10 +635,13 @@ export async function getProducts(): Promise<FrontendProduct[]> {
       id: s.sku,
       ...s,
       reserved: 0,
+      physical: s.available,
       minimum: 0,
       priceCents: 0,
       currency: "ARS",
-      status: s.status as FrontendProduct["status"],
+      restock: null,
+      // Los mocks de dashboard-data siguen usando el vocabulario viejo ("bajo").
+      status: s.status === "bajo" ? "a_reponer" : (s.status as FrontendProduct["status"]),
     }));
   }
 }
