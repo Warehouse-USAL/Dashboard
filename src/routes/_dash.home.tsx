@@ -170,13 +170,13 @@ function HomePage() {
   }));
   const stockDuration = products.slice(0, 5).map((p) => ({
     sku: p.sku,
-    dias: p.status === "agotado" ? 0 : p.status === "bajo" ? 4 : p.available > 100 ? 11 : 7,
+    dias: p.status === "agotado" ? 0 : p.status === "a_reponer" ? 4 : p.available > 100 ? 11 : 7,
     status: p.status,
   }));
   const stockColor = (st: string) =>
     st === "agotado"
       ? "oklch(0.65 0.24 27)"
-      : st === "bajo"
+      : st === "a_reponer"
         ? "oklch(0.78 0.18 60)"
         : "oklch(0.78 0.18 180)";
 

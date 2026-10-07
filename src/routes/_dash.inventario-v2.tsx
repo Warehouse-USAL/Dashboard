@@ -19,29 +19,15 @@ import {
   RefreshCw,
   CalendarIcon,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
-import {
-  useInventoryMetrics,
-  type InvStatus,
-  type EnrichedProduct,
-} from "@/hooks/useInventoryMetrics";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { useInventoryMetrics, type EnrichedProduct } from "@/hooks/useInventoryMetrics";
+import type { FrontendRestock } from "@/lib/api";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import type { DataSource } from "@/lib/data-source";
 import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
-import { live, period as periodTemporal, riskWindow } from "@/lib/temporality";
+import { live, period as periodTemporal, dailyRun, restockWindow } from "@/lib/temporality";
 import type { Temporality } from "@/lib/temporality";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -54,39 +40,56 @@ export const Route = createFileRoute("/_dash/inventario-v2")({
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-const INV_STATUS_LABEL: Record<InvStatus, string> = {
-  disponible: "Disponible",
-  riesgo: "En riesgo",
-  quiebre: "Quiebre",
-  dead: "Dead stock",
+// Estado único del producto: se resuelve una sola vez en `mapProduct` (api.ts) a
+// partir del stock disponible y de la recomendación del cron de reposición.
+type ProductStatus = EnrichedProduct["status"];
+
+const STATUS_LIST: ProductStatus[] = ["a_reponer", "agotado", "ok"];
+
+const STATUS_LABEL: Record<ProductStatus, string> = {
+  ok: "OK",
+  a_reponer: "A reponer",
+  agotado: "Agotado",
 };
 
-const INV_STATUS_CSS: Record<InvStatus, string> = {
-  disponible: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
-  riesgo: "border-amber-500/30 bg-amber-500/10 text-amber-500",
-  quiebre: "border-destructive/30 bg-destructive/10 text-destructive",
-  dead: "border-border bg-secondary/60 text-muted-foreground",
+const STATUS_CSS: Record<ProductStatus, string> = {
+  ok: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
+  a_reponer: "border-amber-500/30 bg-amber-500/10 text-amber-500",
+  agotado: "border-destructive/30 bg-destructive/10 text-destructive",
 };
 
-const INV_STATUS_COLOR: Record<InvStatus, string> = {
-  disponible: "oklch(0.78 0.18 160)",
-  riesgo: "oklch(0.78 0.18 80)",
-  quiebre: "oklch(0.65 0.24 27)",
-  dead: "oklch(0.65 0.05 250)",
+const STATUS_COLOR: Record<ProductStatus, string> = {
+  ok: "oklch(0.78 0.18 160)",
+  a_reponer: "oklch(0.78 0.18 80)",
+  agotado: "oklch(0.65 0.24 27)",
 };
+
+/**
+ * "Agotado" y "A reponer" son dos hechos independientes y pueden ser ciertos a la
+ * vez (el caso más urgente), así que filtros y pestañas no comparan contra
+ * `p.status` — que sólo resuelve el badge de la fila, con "agotado" primero.
+ * "OK" es no estar en ninguno de los dos.
+ */
+function matchesStatus(p: EnrichedProduct, s: ProductStatus): boolean {
+  if (s === "agotado") return p.isDepleted;
+  if (s === "a_reponer") return p.needsRestock;
+  return !p.isDepleted && !p.needsRestock;
+}
 
 type SortKey =
   | "sku"
   | "name"
   | "zone"
+  | "physical"
   | "reserved"
   | "available"
-  | "dailyDemand"
-  | "coverageDays"
-  | "reqNeto"
+  // Pendiente (vuelven con `blended_demand`): columnas "Dem. diaria"/"Cobertura".
+  // | "dailyDemand"
+  // | "coverageDays"
   | "stockValue"
   | "lastOrderDaysAgo"
-  | "invStatus";
+  | "suggestedQuantity"
+  | "status";
 
 const ZONES = ["A", "B", "C", "D", "E"] as const;
 type Zone = (typeof ZONES)[number];
@@ -197,14 +200,35 @@ function periodLabel(value: PeriodId, range?: DateRange): string {
   return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
 }
 
+/** Número de stock con a lo sumo un decimal: el cron devuelve ROP/objetivo con muchos. */
+function fmtStockNum(n: number): string {
+  return n.toLocaleString("es-AR", { maximumFractionDigits: 1 });
+}
+
+/**
+ * Explica de dónde sale (o por qué no hay) la cantidad sugerida. Usa sólo lo que
+ * guarda `product.restock`: la posición de inventario (disponible + lo pedido que
+ * todavía no está ubicado) contra el punto de reposición y el stock objetivo.
+ */
+function restockHint(r: FrontendRestock): string {
+  const pos = fmtStockNum(r.inventoryPosition);
+  const rop = fmtStockNum(r.reorderPoint);
+  const calc = `Calculado el ${format(new Date(r.calculatedAt), "dd/MM HH:mm")}.`;
+  if (r.shouldRestock) {
+    return `Posición de inventario ${pos} ≤ punto de reposición ${rop}. Se repone hasta el stock objetivo de ${fmtStockNum(r.targetStock)}. ${calc}`;
+  }
+  if (r.inventoryPosition > r.reorderPoint) {
+    return `Posición de inventario ${pos} > punto de reposición ${rop}: no hace falta reponer. ${calc}`;
+  }
+  return `Posición de inventario ${pos}, punto de reposición ${rop}: no hay cantidad para reponer. ${calc}`;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 function InventarioPage() {
   const [zoneFilter, setZoneFilter] = useState<Set<Zone>>(new Set(ZONES));
-  const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(
-    new Set(["disponible", "riesgo", "quiebre", "dead"] as InvStatus[]),
-  );
-  const [tableTab, setTableTab] = useState<"todos" | InvStatus>("todos");
+  const [statusFilter, setStatusFilter] = useState<Set<ProductStatus>>(new Set(STATUS_LIST));
+  const [tableTab, setTableTab] = useState<"todos" | ProductStatus>("todos");
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("sku");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -213,13 +237,10 @@ function InventarioPage() {
 
   // period/customRange drive dailyDemand/coverageDays on the table + "Top
   // rotación" (exploratory) and the mock "Movimientos" panel below. They do
-  // NOT drive invStatus (riesgo/quiebre/dead) or the risk KPIs — those use
-  // the separate, fixed riskWindowDays (Configuración › Umbrales operativos)
-  // so a short período pick can't flap the risk alerts. See useInventoryMetrics.
-  const { products, kpis, zoneOccupancy, riskWindowDays } = useInventoryMetrics(
-    period,
-    customRange,
-  );
+  // NOT drive `status` (viene de la recomendación diaria del cron) ni el KPI de
+  // dead stock, que usa la ventana fija del cron (deadStockDays) para que un
+  // período corto no haga parpadear las alertas. See useInventoryMetrics.
+  const { products, kpis, zoneOccupancy, deadStockDays } = useInventoryMetrics(period, customRange);
 
   const dataPeriod: DataPeriodId = useMemo(() => {
     if (period !== "custom") return period;
@@ -231,20 +252,14 @@ function InventarioPage() {
     return "90d";
   }, [period, customRange]);
 
-  // Distribution donut — 4-way status from real data
-  const distByStatus = useMemo(() => {
-    const acc: Record<InvStatus, number> = { disponible: 0, riesgo: 0, quiebre: 0, dead: 0 };
-    products.forEach((p) => {
-      acc[p.invStatus] += 1;
-    });
-    return acc;
-  }, [products]);
-  const distTotal = Object.values(distByStatus).reduce((a, b) => a + b, 0);
-  const distData = (Object.keys(distByStatus) as InvStatus[]).map((k) => ({
-    key: k,
-    name: INV_STATUS_LABEL[k],
-    value: distByStatus[k],
-  }));
+  // Estado del catálogo — dos hechos independientes (pueden superponerse), por
+  // eso son barras sobre el total y no una dona que tendría que sumar 100%.
+  // Salen de los mismos conteos que los KPIs de arriba.
+  const statusTotal = products.length;
+  const statusBars = [
+    { key: "a_reponer" as const, name: STATUS_LABEL.a_reponer, value: kpis.skusToRestock },
+    { key: "agotado" as const, name: STATUS_LABEL.agotado, value: kpis.skusDepleted },
+  ];
 
   // Zone occupancy — real Σ current_stock / Σ maximum_capacity per zone from backend positions
   const occupancy = useMemo(() => {
@@ -263,11 +278,24 @@ function InventarioPage() {
     [products],
   );
 
+  // Cuándo corrió por última vez el cron de reposición. La recomendación es una
+  // foto diaria: si pasó más de un día, el cron no está corriendo y "A reponer"
+  // está desactualizado — hay que decirlo en vez de mostrarlo como si fuera actual.
+  const restockFreshness = useMemo(() => {
+    const times = products
+      .map((p) => p.restockCalculatedAt)
+      .filter((t): t is string => !!t)
+      .map((t) => new Date(t).getTime());
+    if (times.length === 0) return null;
+    const latest = Math.max(...times);
+    return { latest, stale: Date.now() - latest > 24 * 3_600_000 };
+  }, [products]);
+
   // Filtered + sorted table
   const filteredTable = useMemo(() => {
     let list = products.filter((p) => {
-      if (tableTab !== "todos" && p.invStatus !== tableTab) return false;
-      if (!statusFilter.has(p.invStatus)) return false;
+      if (tableTab !== "todos" && !matchesStatus(p, tableTab)) return false;
+      if (!STATUS_LIST.some((s) => statusFilter.has(s) && matchesStatus(p, s))) return false;
       const z = p.zone.split("-")[0] as Zone;
       if ((ZONES as readonly string[]).includes(z) && !zoneFilter.has(z)) return false;
       if (q && !`${p.sku} ${p.name} ${p.positionDisplay}`.toLowerCase().includes(q.toLowerCase()))
@@ -287,31 +315,33 @@ function InventarioPage() {
         case "zone":
           cmp = a.zone.localeCompare(b.zone);
           break;
+        case "physical":
+          cmp = a.physical - b.physical;
+          break;
         case "reserved":
           cmp = a.reserved - b.reserved;
           break;
         case "available":
           cmp = a.available - b.available;
           break;
-        case "dailyDemand":
-          // Columna de la tabla — ventana de riesgo, no el período de abajo
-          // (ese es sólo para "Top rotación"). Ver EnrichedProduct.
-          cmp = a.riskDailyDemand - b.riskDailyDemand;
-          break;
-        case "coverageDays":
-          cmp = a.riskCoverageDays - b.riskCoverageDays;
-          break;
-        case "reqNeto":
-          cmp = a.reqNeto - b.reqNeto;
-          break;
+        // Pendiente (vuelven con `blended_demand`): columnas "Dem. diaria"/"Cobertura".
+        // case "dailyDemand":
+        //   cmp = a.riskDailyDemand - b.riskDailyDemand;
+        //   break;
+        // case "coverageDays":
+        //   cmp = a.riskCoverageDays - b.riskCoverageDays;
+        //   break;
         case "stockValue":
           cmp = a.stockValue - b.stockValue;
           break;
         case "lastOrderDaysAgo":
           cmp = (a.lastOrderDaysAgo ?? 9999) - (b.lastOrderDaysAgo ?? 9999);
           break;
-        case "invStatus":
-          cmp = a.invStatus.localeCompare(b.invStatus);
+        case "suggestedQuantity":
+          cmp = (a.suggestedQuantity ?? 0) - (b.suggestedQuantity ?? 0);
+          break;
+        case "status":
+          cmp = STATUS_LIST.indexOf(a.status) - STATUS_LIST.indexOf(b.status);
           break;
       }
       return sortDir === "asc" ? cmp : -cmp;
@@ -380,46 +410,49 @@ function InventarioPage() {
       </div>
 
       {/* ── 5 KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
           icon={DollarSign}
           label="Valor del inventario"
           value={fmtMoney(kpis.totalValue)}
-          sub="stock disponible × precio"
+          sub="stock físico × precio"
           tone="primary"
           temporal={live()}
         />
         <KpiCard
           icon={AlertTriangle}
-          label="SKUs en riesgo"
-          value={kpis.skusAtRisk.toString()}
-          sub={`cobertura < 5 días (${riskWindowDays}d)`}
+          label="SKUs a reponer"
+          value={kpis.skusToRestock.toString()}
+          sub="recomendación del cron de reposición"
           tone="warning"
-          temporal={riskWindow(riskWindowDays)}
+          temporal={dailyRun()}
         />
         <KpiCard
           icon={PackageX}
-          label="En quiebre"
-          value={kpis.skusBreached.toString()}
+          label="Agotados"
+          value={kpis.skusDepleted.toString()}
           sub="stock disponible = 0"
           tone="danger"
-          temporal={riskWindow(riskWindowDays)}
+          temporal={live()}
         />
+        {/* Pendiente: "Cobertura promedio" vuelve cuando `product.restock` exponga
+            `blended_demand`. Antes se calculaba sobre la Ventana de riesgo configurable.
         <KpiCard
           icon={Clock}
           label="Cobertura promedio"
           value={`${kpis.avgCoverage.toFixed(1)}d`}
-          sub={`días de stock restante (${riskWindowDays}d)`}
+          sub="días de stock restante"
           tone="info"
-          temporal={riskWindow(riskWindowDays)}
+          temporal={dailyRun()}
         />
+        */}
         <KpiCard
           icon={TrendingDown}
           label="Dead stock (valor)"
           value={fmtMoney(kpis.deadStockValue)}
-          sub={`sin órdenes en ${riskWindowDays} días`}
+          sub={`${kpis.deadStockCount} SKU${kpis.deadStockCount === 1 ? "" : "s"} sin órdenes en ${deadStockDays} días`}
           tone="muted"
-          temporal={riskWindow(riskWindowDays)}
+          temporal={restockWindow(deadStockDays)}
         />
       </div>
 
@@ -448,6 +481,18 @@ function InventarioPage() {
           </div>
         }
       >
+        <p
+          className={cn(
+            "text-[11px] mb-2",
+            !restockFreshness || restockFreshness.stale
+              ? "text-amber-500"
+              : "text-muted-foreground",
+          )}
+        >
+          {restockFreshness
+            ? `Recomendación de reposición calculada el ${format(new Date(restockFreshness.latest), "dd/MM HH:mm")}${restockFreshness.stale ? " · hace más de 24 h: el cron debería haber corrido" : ""}`
+            : "Sin recomendación de reposición todavía: el cron aún no corrió"}
+        </p>
         <div className="overflow-x-auto -mx-1">
           <table className="w-full text-sm min-w-[860px]">
             <thead>
@@ -461,34 +506,24 @@ function InventarioPage() {
                 <SortTh k="zone" active={sortKey} dir={sortDir} onSort={toggleSort}>
                   Posición
                 </SortTh>
+                <SortTh k="physical" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Físico
+                </SortTh>
                 <SortTh k="reserved" active={sortKey} dir={sortDir} onSort={toggleSort} right>
                   Reservado
                 </SortTh>
                 <SortTh k="available" active={sortKey} dir={sortDir} onSort={toggleSort} right>
                   Disponible
                 </SortTh>
-                <SortTh
-                  k="dailyDemand"
-                  active={sortKey}
-                  dir={sortDir}
-                  onSort={toggleSort}
-                  right
-                  title={`Calculado sobre la ventana de riesgo configurada (${riskWindowDays}d), no sobre el período de "Top rotación"`}
-                >
+                {/* Pendiente: "Dem. diaria" y "Cobertura" vuelven cuando `product.restock`
+                    exponga `blended_demand`. Antes usaban la Ventana de riesgo configurable.
+                <SortTh k="dailyDemand" active={sortKey} dir={sortDir} onSort={toggleSort} right>
                   Dem. diaria
                 </SortTh>
-                <SortTh
-                  k="coverageDays"
-                  active={sortKey}
-                  dir={sortDir}
-                  onSort={toggleSort}
-                  title={`Calculado sobre la ventana de riesgo configurada (${riskWindowDays}d), no sobre el período de "Top rotación"`}
-                >
+                <SortTh k="coverageDays" active={sortKey} dir={sortDir} onSort={toggleSort}>
                   Cobertura
                 </SortTh>
-                <SortTh k="reqNeto" active={sortKey} dir={sortDir} onSort={toggleSort} right>
-                  Req. neto
-                </SortTh>
+                */}
                 <SortTh k="stockValue" active={sortKey} dir={sortDir} onSort={toggleSort} right>
                   Valor stock
                 </SortTh>
@@ -496,11 +531,21 @@ function InventarioPage() {
                   Última orden
                 </SortTh>
                 <SortTh
-                  k="invStatus"
+                  k="suggestedQuantity"
                   active={sortKey}
                   dir={sortDir}
                   onSort={toggleSort}
-                  title={`Calculado sobre la ventana de riesgo configurada (${riskWindowDays}d), no sobre el período de arriba`}
+                  right
+                  title="Cantidad que sugiere el cron de reposición (se calcula una vez por día)"
+                >
+                  Cant. sugerida
+                </SortTh>
+                <SortTh
+                  k="status"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  title="A reponer: lo recomienda el cron diario. Agotado: stock disponible = 0"
                 >
                   Estado
                 </SortTh>
@@ -512,7 +557,7 @@ function InventarioPage() {
               ))}
               {filteredTable.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="text-center py-10 text-xs text-muted-foreground">
+                  <td colSpan={10} className="text-center py-10 text-xs text-muted-foreground">
                     Sin resultados
                   </td>
                 </tr>
@@ -531,55 +576,40 @@ function InventarioPage() {
         />
       </Panel>
 
-      {/* ── Row 2: Distribution + Occupancy + Top Rotación ── */}
+      {/* ── Row 2: Estado + Occupancy + Top Rotación ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Donut — 4-way status */}
+        {/* Estado del catálogo — barras independientes, no una dona: "A reponer" y
+            "Agotado" pueden ser ciertos a la vez, así que no suman el total. */}
         <Panel
-          title="Distribución por estado"
-          action={<TemporalBadge value={riskWindow(riskWindowDays)} />}
+          title="Estado del catálogo"
+          subtitle={`${statusTotal} SKUs · un producto puede estar en los dos`}
         >
-          <div className="flex items-center gap-3">
-            <div className="relative w-[140px] h-[140px] shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={distData}
-                    dataKey="value"
-                    innerRadius={42}
-                    outerRadius={62}
-                    paddingAngle={2}
-                    stroke="none"
-                  >
-                    {distData.map((d) => (
-                      <Cell key={d.key} fill={INV_STATUS_COLOR[d.key]} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-xl font-bold">{distTotal}</span>
-                <span className="text-[10px] text-muted-foreground">SKUs</span>
-              </div>
-            </div>
-            <div className="flex-1 text-[11px] space-y-1.5">
-              {distData.map((d) => {
-                const pct = distTotal ? Math.round((d.value / distTotal) * 100) : 0;
-                return (
-                  <div key={d.key} className="flex items-center justify-between gap-2">
+          <div className="space-y-3">
+            {statusBars.map((b) => {
+              const pct = statusTotal ? Math.round((b.value / statusTotal) * 100) : 0;
+              return (
+                <div key={b.key} className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
                     <span className="flex items-center gap-1.5">
                       <span
                         className="w-2 h-2 rounded-sm shrink-0"
-                        style={{ background: INV_STATUS_COLOR[d.key] }}
+                        style={{ background: STATUS_COLOR[b.key] }}
                       />
-                      {d.name}
+                      {b.name}
                     </span>
                     <span className="text-muted-foreground tabular-nums">
-                      {d.value} <span className="opacity-60">({pct}%)</span>
+                      {b.value} de {statusTotal} <span className="opacity-60">({pct}%)</span>
                     </span>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="h-1.5 rounded-full bg-secondary/60 overflow-hidden">
+                    <div
+                      className="h-full"
+                      style={{ width: `${pct}%`, background: STATUS_COLOR[b.key] }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </Panel>
 
@@ -613,8 +643,8 @@ function InventarioPage() {
 
         {/* Top rotación — único panel de la página que usa el período elegido,
             así que es el único que necesita el picker; por eso vive acá y no
-            en el header general (el resto de los datos son en vivo o
-            dependen de la Ventana de riesgo de Configuración, no de esto). */}
+            en el header general (el resto de los datos son en vivo, de la
+            corrida diaria del cron o de su ventana fija, no de esto). */}
         <Panel
           title="Top rotación"
           subtitle={`Mayor demanda diaria · ${periodLabel(period, customRange)}`}
@@ -772,19 +802,18 @@ function InventarioPage() {
 // ─── ProductRow ───────────────────────────────────────────────────────────────
 
 function ProductRow({ p }: { p: EnrichedProduct }) {
-  // Dem. diaria/Cobertura de la tabla van sobre la Ventana de riesgo
-  // (Configuración), no sobre el período de "Top rotación" — mismo criterio
-  // que ya usaba la columna "Estado".
-  const coverPct =
-    p.riskCoverageDays >= 9999 ? 100 : Math.min(100, (p.riskCoverageDays / 30) * 100);
-  const coverTone =
-    p.riskCoverageDays >= 9999
-      ? "bg-muted-foreground/40"
-      : p.riskCoverageDays < 5
-        ? "bg-destructive"
-        : p.riskCoverageDays < 15
-          ? "bg-amber-500"
-          : "bg-emerald-500";
+  // Pendiente: la barra de cobertura vuelve junto con la columna "Cobertura",
+  // cuando `product.restock` exponga `blended_demand`.
+  // const coverPct =
+  //   p.riskCoverageDays >= 9999 ? 100 : Math.min(100, (p.riskCoverageDays / 30) * 100);
+  // const coverTone =
+  //   p.riskCoverageDays >= 9999
+  //     ? "bg-muted-foreground/40"
+  //     : p.riskCoverageDays < 5
+  //       ? "bg-destructive"
+  //       : p.riskCoverageDays < 15
+  //         ? "bg-amber-500"
+  //         : "bg-emerald-500";
 
   return (
     <tr className="border-b border-border/50 hover:bg-secondary/30">
@@ -793,10 +822,12 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
         {p.name}
       </td>
       <td className="py-3 px-2 text-xs font-mono text-muted-foreground">{p.positionDisplay}</td>
+      <td className="py-3 px-2 text-xs text-right tabular-nums">{p.physical}</td>
       <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
         {p.reserved}
       </td>
       <td className="py-3 px-2 text-xs text-right tabular-nums font-semibold">{p.available}</td>
+      {/* Pendiente: celdas "Dem. diaria" y "Cobertura" (ver encabezado de la tabla).
       <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
         {fmtDemand(p.riskDailyDemand)}
       </td>
@@ -810,15 +841,24 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
           </span>
         </div>
       </td>
-      <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">—</td>
+      */}
       <td className="py-3 px-2 text-xs text-right tabular-nums">
         {p.priceCents > 0 ? fmtMoney(p.stockValue) : "—"}
       </td>
       <td className="py-3 px-2 text-xs text-muted-foreground whitespace-nowrap">
         {fmtLastOrder(p.lastOrderDate, p.lastOrderDaysAgo)}
       </td>
+      <td
+        className={cn(
+          "py-3 px-2 text-xs text-right tabular-nums font-semibold",
+          p.restock && "cursor-help",
+        )}
+        title={p.restock ? restockHint(p.restock) : "Sin recomendación todavía"}
+      >
+        {p.suggestedQuantity && p.suggestedQuantity > 0 ? p.suggestedQuantity : "—"}
+      </td>
       <td className="py-3 px-2">
-        <InvStatusBadge s={p.invStatus} />
+        <StatusBadge s={p.status} />
       </td>
     </tr>
   );
@@ -941,12 +981,12 @@ function KpiCard({
   );
 }
 
-function InvStatusBadge({ s }: { s: InvStatus }) {
+function StatusBadge({ s }: { s: ProductStatus }) {
   return (
     <span
-      className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${INV_STATUS_CSS[s]}`}
+      className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_CSS[s]}`}
     >
-      {INV_STATUS_LABEL[s]}
+      {STATUS_LABEL[s]}
     </span>
   );
 }
@@ -969,15 +1009,14 @@ function TableTabs({
   value,
   onChange,
 }: {
-  value: "todos" | InvStatus;
-  onChange: (v: "todos" | InvStatus) => void;
+  value: "todos" | ProductStatus;
+  onChange: (v: "todos" | ProductStatus) => void;
 }) {
-  const tabs: Array<{ id: "todos" | InvStatus; label: string }> = [
+  const tabs: Array<{ id: "todos" | ProductStatus; label: string }> = [
     { id: "todos", label: "Todos" },
-    { id: "disponible", label: "Disponible" },
-    { id: "riesgo", label: "En riesgo" },
-    { id: "quiebre", label: "Quiebre" },
-    { id: "dead", label: "Dead stock" },
+    { id: "a_reponer", label: STATUS_LABEL.a_reponer },
+    { id: "agotado", label: STATUS_LABEL.agotado },
+    { id: "ok", label: STATUS_LABEL.ok },
   ];
   return (
     <div className="flex items-center gap-0.5 p-0.5 rounded-md border border-border bg-secondary/30">
@@ -1007,17 +1046,16 @@ function FilterMenu({
 }: {
   zone: Set<Zone>;
   onZone: (s: Set<Zone>) => void;
-  status: Set<InvStatus>;
-  onStatus: (s: Set<InvStatus>) => void;
+  status: Set<ProductStatus>;
+  onStatus: (s: Set<ProductStatus>) => void;
 }) {
-  const INV_STATUS_LIST: InvStatus[] = ["disponible", "riesgo", "quiebre", "dead"];
   const toggleZone = (z: Zone) => {
     const next = new Set(zone);
     if (next.has(z)) next.delete(z);
     else next.add(z);
     onZone(next);
   };
-  const toggleStatus = (s: InvStatus) => {
+  const toggleStatus = (s: ProductStatus) => {
     const next = new Set(status);
     if (next.has(s)) next.delete(s);
     else next.add(s);
@@ -1025,7 +1063,7 @@ function FilterMenu({
   };
   const active =
     (zone.size < ZONES.length ? ZONES.length - zone.size : 0) +
-    (status.size < INV_STATUS_LIST.length ? INV_STATUS_LIST.length - status.size : 0);
+    (status.size < STATUS_LIST.length ? STATUS_LIST.length - status.size : 0);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -1042,11 +1080,11 @@ function FilterMenu({
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">
           Estado
         </p>
-        {INV_STATUS_LIST.map((s) => (
+        {STATUS_LIST.map((s) => (
           <CheckRow
             key={s}
             on={status.has(s)}
-            label={INV_STATUS_LABEL[s]}
+            label={STATUS_LABEL[s]}
             onClick={() => toggleStatus(s)}
           />
         ))}
@@ -1068,7 +1106,7 @@ function FilterMenu({
           </button>
           <button
             onClick={() => {
-              onStatus(new Set(INV_STATUS_LIST));
+              onStatus(new Set(STATUS_LIST));
               onZone(new Set(ZONES));
             }}
             className="text-[11px] text-primary hover:underline px-1"
