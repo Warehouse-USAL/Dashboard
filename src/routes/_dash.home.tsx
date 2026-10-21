@@ -31,6 +31,7 @@ import {
   YAxis,
 } from "recharts";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
+import { ChartBox } from "@/components/dashboard/ChartBox";
 import { WarehouseMap } from "@/components/dashboard/WarehouseMap";
 import { alertTone, alerts, batteryTone, stateStyles, throughput } from "@/lib/dashboard-data";
 import { useQuery } from "@tanstack/react-query";
@@ -378,36 +379,46 @@ function HomePage() {
           subtitle={`Mayor demanda diaria · ${periodLabel(period, customRange)}`}
           icon={Target}
           action={<TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />}
+          expandable
         >
-          <div className="space-y-2">
-            {topSkus.map(([name, demand, , sku]) => {
-              const max = topSkus[0]?.[1] ?? 1;
-              return (
-                <div key={sku} className="p-3 rounded-lg bg-secondary/30 border border-border">
-                  <div className="flex justify-between items-center gap-2 mb-1.5">
-                    <span className="text-xs font-bold truncate flex-1 min-w-0" title={name}>
-                      {name}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground shrink-0">
-                      {/* 2 decimales, no 1: con 1 sólo, SKUs con demanda real
+          {(expanded) => (
+            <div className="space-y-2">
+              {topSkus.map(([name, demand, , sku]) => {
+                const max = topSkus[0]?.[1] ?? 1;
+                return (
+                  <div key={sku} className="p-3 rounded-lg bg-secondary/30 border border-border">
+                    <div className="flex justify-between items-center gap-2 mb-1.5">
+                      <span
+                        className={`font-bold flex-1 min-w-0 ${expanded ? "text-sm" : "text-xs truncate"}`}
+                        title={name}
+                      >
+                        {name}
+                      </span>
+                      <span
+                        className={`text-muted-foreground shrink-0 ${expanded ? "text-xs" : "text-[11px]"}`}
+                      >
+                        {/* 2 decimales, no 1: con 1 sólo, SKUs con demanda real
                           distinta redondeaban al mismo número en pantalla
                           mientras la barra (sin redondear) se veía distinta. */}
-                      {demand < 1 ? demand.toFixed(2) : Math.round(demand)} u/d
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                        {demand < 1 ? demand.toFixed(2) : Math.round(demand)} u/d
+                      </span>
+                    </div>
                     <div
-                      className="h-full bg-primary"
-                      style={{ width: `${(demand / max) * 100}%` }}
-                    />
+                      className={`rounded-full bg-secondary overflow-hidden ${expanded ? "h-2.5" : "h-1.5"}`}
+                    >
+                      <div
+                        className="h-full bg-primary"
+                        style={{ width: `${(demand / max) * 100}%` }}
+                      />
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-            {topSkus.length === 0 && (
-              <p className="text-[11px] text-muted-foreground text-center py-6">Sin datos</p>
-            )}
-          </div>
+                );
+              })}
+              {topSkus.length === 0 && (
+                <p className="text-[11px] text-muted-foreground text-center py-6">Sin datos</p>
+              )}
+            </div>
+          )}
         </Panel>
       </section>
 
@@ -418,16 +429,21 @@ function HomePage() {
           subtitle="Unidades por hora"
           icon={Clock}
           action={<SourceBadge source="mock" />}
+          expandable
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={picking}>
-              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
-              <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <YAxis stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <Tooltip {...tooltip} />
-              <Bar dataKey="unidades" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {(expanded) => (
+            <ChartBox height={220}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={picking}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
+                  <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                  <YAxis stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                  <Tooltip {...tooltip} />
+                  <Bar dataKey="unidades" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartBox>
+          )}
         </Panel>
 
         <Panel
@@ -435,32 +451,41 @@ function HomePage() {
           subtitle="Completadas vs canceladas"
           icon={Activity}
           action={<SourceBadge source="mock" />}
+          expandable
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={ordersHour}>
-              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
-              <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <YAxis stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <Tooltip {...tooltip} />
-              <Bar dataKey="completadas" stackId="a" fill="oklch(0.78 0.18 180)" />
-              <Bar
-                dataKey="canceladas"
-                stackId="a"
-                fill="oklch(0.65 0.24 27)"
-                radius={[4, 4, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="flex gap-4 text-[10px] mt-2 text-muted-foreground justify-center">
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-primary" />
-              Completadas
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-destructive" />
-              Canceladas
-            </span>
-          </div>
+          {(expanded) => (
+            <>
+              <ChartBox height={220}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={ordersHour}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
+                    <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                    <YAxis stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                    <Tooltip {...tooltip} />
+                    <Bar dataKey="completadas" stackId="a" fill="oklch(0.78 0.18 180)" />
+                    <Bar
+                      dataKey="canceladas"
+                      stackId="a"
+                      fill="oklch(0.65 0.24 27)"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartBox>
+              <div
+                className={`flex gap-4 mt-2 text-muted-foreground justify-center ${expanded ? "text-xs" : "text-[10px]"}`}
+              >
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-primary" />
+                  Completadas
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-destructive" />
+                  Canceladas
+                </span>
+              </div>
+            </>
+          )}
         </Panel>
 
         <Panel
@@ -468,26 +493,35 @@ function HomePage() {
           subtitle="Días hasta quiebre"
           icon={Warehouse}
           action={<SourceBadge source="mock" />}
+          expandable
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={stockDuration} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
-              <XAxis type="number" stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <YAxis
-                type="category"
-                dataKey="sku"
-                stroke="oklch(0.7 0.02 240)"
-                fontSize={10}
-                width={60}
-              />
-              <Tooltip {...tooltip} />
-              <Bar dataKey="dias" radius={[0, 4, 4, 0]}>
-                {stockDuration.map((s) => (
-                  <Cell key={s.sku} fill={stockColor(s.status)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {(expanded) => (
+            <ChartBox height={220}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stockDuration} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
+                  <XAxis
+                    type="number"
+                    stroke="oklch(0.7 0.02 240)"
+                    fontSize={expanded ? 13 : 11}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="sku"
+                    stroke="oklch(0.7 0.02 240)"
+                    fontSize={expanded ? 13 : 10}
+                    width={expanded ? 110 : 60}
+                  />
+                  <Tooltip {...tooltip} />
+                  <Bar dataKey="dias" radius={[0, 4, 4, 0]}>
+                    {stockDuration.map((s) => (
+                      <Cell key={s.sku} fill={stockColor(s.status)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartBox>
+          )}
         </Panel>
       </section>
     </div>

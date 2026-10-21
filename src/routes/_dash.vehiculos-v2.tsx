@@ -27,6 +27,9 @@ import {
 import { useVehicles } from "@/hooks/useVehicles";
 import { useVehicleWebSocket } from "@/hooks/useVehicleWebSocket";
 import { usePagedList } from "@/hooks/usePagination";
+import type { ComponentProps } from "react";
+import { Panel as SharedPanel } from "@/components/dashboard/Panel";
+import { ChartBox } from "@/components/dashboard/ChartBox";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
@@ -324,50 +327,58 @@ function RoversPage() {
               <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
             </div>
           }
+          expandable={fleet.failureHistory.length > 0}
         >
-          {fleet.failureHistory.length === 0 ? (
-            <EmptyPanel source={fleet.metricsSource} empty="Sin fallas registradas en el período" />
-          ) : (
-            <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={fleet.failureHistory}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                  <XAxis
-                    dataKey="t"
-                    tickFormatter={tickFormatter}
-                    tick={{ fontSize: 10 }}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fontSize: 10 }}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-                  <Tooltip
-                    labelFormatter={tickFormatter}
-                    contentStyle={{
-                      fontSize: 11,
-                      background: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 10 }} />
-                  {fleet.vehicleIds.map((id, i) => (
-                    <Line
-                      key={id}
-                      type="monotone"
-                      dataKey={id}
-                      stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-                      strokeWidth={2}
-                      dot={false}
-                      name={id}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+          {(expanded) => (
+            <>
+              {fleet.failureHistory.length === 0 ? (
+                <EmptyPanel
+                  source={fleet.metricsSource}
+                  empty="Sin fallas registradas en el período"
+                />
+              ) : (
+                <ChartBox height={220}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={fleet.failureHistory}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+                      <XAxis
+                        dataKey="t"
+                        tickFormatter={tickFormatter}
+                        tick={{ fontSize: expanded ? 13 : 10 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tick={{ fontSize: expanded ? 13 : 10 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <Tooltip
+                        labelFormatter={tickFormatter}
+                        contentStyle={{
+                          fontSize: expanded ? 13 : 11,
+                          background: "var(--card)",
+                          border: "1px solid var(--border)",
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: expanded ? 13 : 10 }} />
+                      {fleet.vehicleIds.map((id, i) => (
+                        <Line
+                          key={id}
+                          type="monotone"
+                          dataKey={id}
+                          stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                          strokeWidth={2}
+                          dot={false}
+                          name={id}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartBox>
+              )}
+              {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
+            </>
           )}
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
 
         <Panel
@@ -378,38 +389,51 @@ function RoversPage() {
               <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
             </div>
           }
+          expandable={fleet.paretoBars.length > 0}
         >
-          {fleet.paretoBars.length === 0 ? (
-            <EmptyPanel source={fleet.metricsSource} empty="Sin fallas registradas en el período" />
-          ) : (
-            <div className="space-y-3 mt-2">
-              {fleet.paretoBars.map((p) => (
-                <div key={p.label}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span>{p.label}</span>
-                    <span className="text-muted-foreground">
-                      {p.failures.toFixed(0)} · {p.pct.toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-destructive" style={{ width: `${p.pct}%` }} />
-                  </div>
+          {(expanded) => (
+            <>
+              {fleet.paretoBars.length === 0 ? (
+                <EmptyPanel
+                  source={fleet.metricsSource}
+                  empty="Sin fallas registradas en el período"
+                />
+              ) : (
+                <div className={expanded ? "space-y-6 mt-2" : "space-y-3 mt-2"}>
+                  {fleet.paretoBars.map((p) => (
+                    <div key={p.label}>
+                      <div
+                        className={`flex justify-between mb-1 ${expanded ? "text-sm" : "text-xs"}`}
+                      >
+                        <span>{p.label}</span>
+                        <span className="text-muted-foreground">
+                          {p.failures.toFixed(0)} · {p.pct.toFixed(0)}%
+                        </span>
+                      </div>
+                      <div
+                        className={`w-full bg-muted rounded-full overflow-hidden ${expanded ? "h-3" : "h-2"}`}
+                      >
+                        <div className="h-full bg-destructive" style={{ width: `${p.pct}%` }} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+              {/*
+                UNCATEGORIZED no es una categoría de falla: es lo que queda cuando la
+                caída no pasó por un `vehicle.error` con código — típicamente un rover
+                que se autoreporta caído en su telemetría de rutina. Vale aclararlo
+                sólo si esa barra aparece.
+              */}
+              {fleet.paretoBars.some((b) => b.label === "UNCATEGORIZED") && (
+                <p className="text-[10px] text-muted-foreground mt-3">
+                  «UNCATEGORIZED» son caídas sin código de error reportado, no una categoría de
+                  falla.
+                </p>
+              )}
+              {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
+            </>
           )}
-          {/*
-            UNCATEGORIZED no es una categoría de falla: es lo que queda cuando la
-            caída no pasó por un `vehicle.error` con código — típicamente un rover
-            que se autoreporta caído en su telemetría de rutina. Vale aclararlo
-            sólo si esa barra aparece.
-          */}
-          {fleet.paretoBars.some((b) => b.label === "UNCATEGORIZED") && (
-            <p className="text-[10px] text-muted-foreground mt-3">
-              «UNCATEGORIZED» son caídas sin código de error reportado, no una categoría de falla.
-            </p>
-          )}
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
 
         <Panel
@@ -420,72 +444,77 @@ function RoversPage() {
               <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
             </div>
           }
+          expandable={fleet.activity.length > 0}
         >
-          {fleet.activity.length === 0 ? (
-            <EmptyPanel source={fleet.source} empty="Sin actividad en el período" />
-          ) : (
-            <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={fleet.activity}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                  <XAxis
-                    dataKey="t"
-                    tickFormatter={tickFormatter}
-                    tick={{ fontSize: 10 }}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    tick={{ fontSize: 10 }}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tick={{ fontSize: 10 }}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-                  <Tooltip
-                    labelFormatter={tickFormatter}
-                    contentStyle={{
-                      fontSize: 11,
-                      background: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 10 }} />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="orders"
-                    stroke="oklch(0.78 0.18 80)"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Órdenes creadas"
-                  />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="rovers"
-                    stroke="oklch(0.65 0.05 250)"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Rovers ocupados"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+          {(expanded) => (
+            <>
+              {fleet.activity.length === 0 ? (
+                <EmptyPanel source={fleet.source} empty="Sin actividad en el período" />
+              ) : (
+                <ChartBox height={220}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={fleet.activity}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+                      <XAxis
+                        dataKey="t"
+                        tickFormatter={tickFormatter}
+                        tick={{ fontSize: expanded ? 13 : 10 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <YAxis
+                        yAxisId="left"
+                        tick={{ fontSize: expanded ? 13 : 10 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        tick={{ fontSize: expanded ? 13 : 10 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <Tooltip
+                        labelFormatter={tickFormatter}
+                        contentStyle={{
+                          fontSize: expanded ? 13 : 11,
+                          background: "var(--card)",
+                          border: "1px solid var(--border)",
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: expanded ? 13 : 10 }} />
+                      <Line
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="orders"
+                        stroke="oklch(0.78 0.18 80)"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Órdenes creadas"
+                      />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="rovers"
+                        stroke="oklch(0.65 0.05 250)"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Rovers ocupados"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartBox>
+              )}
+              {/*
+                "Rovers ocupados" sale de contar el gauge de estado, que con step
+                grande devuelve el PROMEDIO de rovers BUSY durante el bloque, no un
+                conteo instantáneo. Por eso puede dar decimales: es correcto.
+              */}
+              <p className="text-[10px] text-muted-foreground mt-3">
+                «Rovers ocupados» es el promedio de rovers ocupados en cada intervalo, por eso
+                puede tener decimales.
+              </p>
+              {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
+            </>
           )}
-          {/*
-            "Rovers ocupados" sale de contar el gauge de estado, que con step
-            grande devuelve el PROMEDIO de rovers BUSY durante el bloque, no un
-            conteo instantáneo. Por eso puede dar decimales: es correcto.
-          */}
-          <p className="text-[10px] text-muted-foreground mt-3">
-            «Rovers ocupados» es el promedio de rovers ocupados en cada intervalo, por eso puede
-            tener decimales.
-          </p>
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
       </div>
 
@@ -532,26 +561,8 @@ function RoverRow({ r }: { r: Rover }) {
   );
 }
 
-function Panel({
-  title,
-  action,
-  className = "",
-  children,
-}: {
-  title: string;
-  action?: React.ReactNode;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`rounded-xl border border-border bg-card p-5 ${className}`}>
-      <div className="flex items-center justify-between mb-3 gap-2">
-        <h2 className="text-sm font-bold tracking-tight">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
+function Panel(props: ComponentProps<typeof SharedPanel>) {
+  return <SharedPanel dense {...props} />;
 }
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {

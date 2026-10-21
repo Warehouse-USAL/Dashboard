@@ -30,6 +30,9 @@ import {
 } from "recharts";
 import { useActiveOrders, useOrdersInRange } from "@/hooks/useOrders";
 import { useOrderStats } from "@/hooks/useOrderStats";
+import type { ComponentProps } from "react";
+import { Panel as SharedPanel } from "@/components/dashboard/Panel";
+import { ChartBox } from "@/components/dashboard/ChartBox";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import type { DataSource } from "@/lib/data-source";
 import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
@@ -730,51 +733,68 @@ export function OrdenesPage() {
               <SourceBadge source={stats.source} />
             </div>
           }
+          expandable
         >
-          <div className="flex items-center gap-3">
-            <div className="relative w-[140px] h-[140px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={distData}
-                    dataKey="value"
-                    innerRadius={42}
-                    outerRadius={62}
-                    paddingAngle={2}
-                    stroke="none"
-                  >
-                    {distData.map((d) => (
-                      <Cell key={d.key} fill={STATE_COLOR[d.key]} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xl font-bold">{distTotal.toLocaleString("es-AR")}</span>
-                <span className="text-[10px] text-muted-foreground">Total</span>
-              </div>
-            </div>
-            <div className="flex-1 text-[11px] space-y-1.5">
-              {distData.map((d) => {
-                const pct = distTotal ? Math.round((d.value / distTotal) * 100) : 0;
-                return (
-                  <div key={d.key} className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="w-2 h-2 rounded-sm"
-                        style={{ background: STATE_COLOR[d.key] }}
-                      />
-                      {d.name}
+          {(expanded) => (
+            <>
+              <div className={`flex items-center ${expanded ? "gap-10 justify-center my-auto" : "gap-3"}`}>
+                <div
+                  className={`relative shrink-0 ${expanded ? "w-[320px] h-[320px]" : "w-[140px] h-[140px]"}`}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={distData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={expanded ? "68%" : 42}
+                        outerRadius={expanded ? "100%" : 62}
+                        paddingAngle={2}
+                        stroke="none"
+                      >
+                        {distData.map((d) => (
+                          <Cell key={d.key} fill={STATE_COLOR[d.key]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ fontSize: expanded ? 13 : 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className={`font-bold ${expanded ? "text-4xl" : "text-xl"}`}>
+                      {distTotal.toLocaleString("es-AR")}
                     </span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {d.value} <span className="opacity-60">({pct}%)</span>
+                    <span
+                      className={`text-muted-foreground ${expanded ? "text-xs" : "text-[10px]"}`}
+                    >
+                      Total
                     </span>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-          {stats.windowClamped && <ClampNotice />}
+                </div>
+                <div
+                  className={`space-y-1.5 ${expanded ? "text-sm min-w-[260px]" : "flex-1 text-[11px]"}`}
+                >
+                  {distData.map((d) => {
+                    const pct = distTotal ? Math.round((d.value / distTotal) * 100) : 0;
+                    return (
+                      <div key={d.key} className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className="w-2 h-2 rounded-sm"
+                            style={{ background: STATE_COLOR[d.key] }}
+                          />
+                          {d.name}
+                        </span>
+                        <span className="text-muted-foreground tabular-nums">
+                          {d.value} <span className="opacity-60">({pct}%)</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {stats.windowClamped && <ClampNotice />}
+            </>
+          )}
         </Panel>
 
         <Panel
@@ -785,24 +805,34 @@ export function OrdenesPage() {
               <span className="text-[11px] text-muted-foreground">Pending · In progress</span>
             </div>
           }
+          expandable
         >
-          <div className="space-y-2.5 mt-1">
-            {agingBuckets.map((a) => {
-              const agingMax = Math.max(...agingBuckets.map((b) => b.value));
-              return (
-                <div key={a.bucket} className="flex items-center gap-3 text-[11px]">
-                  <span className="w-20 text-muted-foreground">{a.bucket}</span>
-                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+          {(expanded) => (
+            <div className={expanded ? "space-y-5 mt-1" : "space-y-2.5 mt-1"}>
+              {agingBuckets.map((a) => {
+                const agingMax = Math.max(...agingBuckets.map((b) => b.value));
+                return (
+                  <div
+                    key={a.bucket}
+                    className={`flex items-center gap-3 ${expanded ? "text-sm" : "text-[11px]"}`}
+                  >
+                    <span className={`text-muted-foreground ${expanded ? "w-28" : "w-20"}`}>
+                      {a.bucket}
+                    </span>
                     <div
-                      className={`h-full ${a.tone}`}
-                      style={{ width: `${agingMax ? (a.value / agingMax) * 100 : 0}%` }}
-                    />
+                      className={`flex-1 bg-muted rounded-full overflow-hidden ${expanded ? "h-3" : "h-2"}`}
+                    >
+                      <div
+                        className={`h-full ${a.tone}`}
+                        style={{ width: `${agingMax ? (a.value / agingMax) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <span className="w-8 text-right tabular-nums">{a.value}</span>
                   </div>
-                  <span className="w-8 text-right tabular-nums">{a.value}</span>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </Panel>
 
         <Panel
@@ -964,32 +994,44 @@ export function OrdenesPage() {
               <SourceBadge source={stats.source} />
             </div>
           }
+          expandable
         >
-          <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={horas}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                <XAxis dataKey="h" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                <Tooltip
-                  contentStyle={{
-                    fontSize: 11,
-                    background: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="ordenes"
-                  stroke={COLORS.amber}
-                  strokeWidth={2}
-                  dot={{ r: 2 }}
-                  name="Órdenes"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          {stats.windowClamped && <ClampNotice />}
+          {(expanded) => (
+            <>
+              <ChartBox height={260}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={horas}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+                    <XAxis
+                      dataKey="h"
+                      tick={{ fontSize: expanded ? 13 : 10 }}
+                      stroke="var(--muted-foreground)"
+                    />
+                    <YAxis
+                      tick={{ fontSize: expanded ? 13 : 10 }}
+                      stroke="var(--muted-foreground)"
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        fontSize: expanded ? 13 : 11,
+                        background: "var(--card)",
+                        border: "1px solid var(--border)",
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="ordenes"
+                      stroke={COLORS.amber}
+                      strokeWidth={2}
+                      dot={{ r: expanded ? 3 : 2 }}
+                      name="Órdenes"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartBox>
+              {stats.windowClamped && <ClampNotice />}
+            </>
+          )}
         </Panel>
       </div>
 
@@ -1087,51 +1129,68 @@ export function OrdenesPage() {
           className="self-start"
           title="Órdenes por prioridad"
           action={<TemporalBadge value={live()} />}
+          expandable
         >
-          <div className="flex items-center gap-3">
-            <div className="relative w-[140px] h-[140px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={prioData}
-                    dataKey="value"
-                    innerRadius={42}
-                    outerRadius={62}
-                    paddingAngle={2}
-                    stroke="none"
-                  >
-                    {prioData.map((d) => (
-                      <Cell key={d.key} fill={PRIORITY_COLOR[d.key]} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xl font-bold">{prioTotal.toLocaleString("es-AR")}</span>
-                <span className="text-[10px] text-muted-foreground">Total</span>
-              </div>
-            </div>
-            <div className="flex-1 text-[11px] space-y-1.5">
-              {prioData.map((d) => {
-                const pct = prioTotal ? Math.round((d.value / prioTotal) * 100) : 0;
-                return (
-                  <div key={d.key} className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="w-2 h-2 rounded-sm"
-                        style={{ background: PRIORITY_COLOR[d.key] }}
-                      />
-                      {d.name}
+          {(expanded) => (
+            <>
+              <div className={`flex items-center ${expanded ? "gap-10 justify-center my-auto" : "gap-3"}`}>
+                <div
+                  className={`relative shrink-0 ${expanded ? "w-[320px] h-[320px]" : "w-[140px] h-[140px]"}`}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={prioData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={expanded ? "68%" : 42}
+                        outerRadius={expanded ? "100%" : 62}
+                        paddingAngle={2}
+                        stroke="none"
+                      >
+                        {prioData.map((d) => (
+                          <Cell key={d.key} fill={PRIORITY_COLOR[d.key]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ fontSize: expanded ? 13 : 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className={`font-bold ${expanded ? "text-4xl" : "text-xl"}`}>
+                      {prioTotal.toLocaleString("es-AR")}
                     </span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {d.value} <span className="opacity-60">({pct}%)</span>
+                    <span
+                      className={`text-muted-foreground ${expanded ? "text-xs" : "text-[10px]"}`}
+                    >
+                      Total
                     </span>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-          {stats.windowClamped && <ClampNotice />}
+                </div>
+                <div
+                  className={`space-y-1.5 ${expanded ? "text-sm min-w-[260px]" : "flex-1 text-[11px]"}`}
+                >
+                  {prioData.map((d) => {
+                    const pct = prioTotal ? Math.round((d.value / prioTotal) * 100) : 0;
+                    return (
+                      <div key={d.key} className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className="w-2 h-2 rounded-sm"
+                            style={{ background: PRIORITY_COLOR[d.key] }}
+                          />
+                          {d.name}
+                        </span>
+                        <span className="text-muted-foreground tabular-nums">
+                          {d.value} <span className="opacity-60">({pct}%)</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {stats.windowClamped && <ClampNotice />}
+            </>
+          )}
         </Panel>
       </div>
     </div>
@@ -1140,31 +1199,8 @@ export function OrdenesPage() {
 
 // --- subcomponents ---
 
-function Panel({
-  title,
-  subtitle,
-  action,
-  className = "",
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  action?: React.ReactNode;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`rounded-xl border border-border bg-card p-5 ${className}`}>
-      <div className="flex items-start justify-between mb-3 gap-2 flex-wrap">
-        <div>
-          <h2 className="text-sm font-bold tracking-tight">{title}</h2>
-          {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>}
-        </div>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
+function Panel(props: ComponentProps<typeof SharedPanel>) {
+  return <SharedPanel dense {...props} />;
 }
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
