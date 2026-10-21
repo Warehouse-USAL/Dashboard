@@ -172,7 +172,6 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
       /** Agrupación de `hourly`: hora, día, semana o mes según el período. */
       bucketKind: kind,
       /** True si el rango elegido excedía los 92 días que `orders` admite por consulta. */
-      windowClamped: oWindow.clamped,
       source,
       isLoading: byStatus.isLoading || byPriority.isLoading,
     };
@@ -190,7 +189,6 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
     byBucket.isLoading,
     byBucket.isError,
     oWindow.days,
-    oWindow.clamped,
     oWindow.from,
     oWindow.to,
     kind,

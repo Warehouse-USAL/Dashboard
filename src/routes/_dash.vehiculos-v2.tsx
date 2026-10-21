@@ -43,21 +43,6 @@ const SERIES_COLORS = [
 ];
 
 /**
- * Aviso de que los gráficos de flota muestran menos días de los que pediste.
- *
- * Una sola consulta de métricas no puede abarcar más de 31 días (el histórico sí
- * existe: la retención es de ~400). Sin este cartel, elegir "90 días" y ver 30 se
- * lee como que no hay datos más viejos, que es falso.
- */
-function ClampNotice({ shown }: { shown: number }) {
-  return (
-    <p className="text-[10px] text-muted-foreground mt-3">
-      Mostrando los últimos {shown} días: una consulta de métricas no puede abarcar más de 31.
-    </p>
-  );
-}
-
-/**
  * Qué mostrar cuando un panel no tiene nada que graficar.
  *
  * Distingue "no hay datos" de "no pudimos traerlos": un almacén sin fallas y un
@@ -333,7 +318,6 @@ function RoversPage() {
               ))}
             </p>
           )}
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
 
         <Panel
@@ -375,7 +359,6 @@ function RoversPage() {
               «UNCATEGORIZED» son caídas sin código de error reportado, no una categoría de falla.
             </p>
           )}
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
 
         <Panel
@@ -451,7 +434,6 @@ function RoversPage() {
             «Rovers ocupados» es el promedio de rovers ocupados en cada intervalo, por eso puede
             tener decimales.
           </p>
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
       </div>
 

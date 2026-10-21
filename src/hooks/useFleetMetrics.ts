@@ -432,14 +432,6 @@ export function useFleetMetrics(period: PeriodId) {
       vehicleIds: [...failuresByVehicle.keys()].sort(),
       paretoBars,
       activity,
-      /**
-       * True cuando el período elegido excedía lo que una consulta puede abarcar
-       * y se recortó. Los gráficos muestran menos días de los pedidos, así que
-       * la página TIENE que decirlo: si no, se lee como que no hay datos viejos.
-       */
-      clampedToRetention: mWindow.clamped,
-      /** Días que los gráficos de flota terminan mostrando, ya recortados. */
-      shownDays: Math.round(mWindow.seconds / 86_400),
       /** Duración de cada intervalo del gráfico; el eje de tiempo ajusta su formato según esto. */
       stepSeconds: displaySeconds,
       /** Agrupación de los gráficos: hora, día, semana o mes. */
@@ -464,7 +456,6 @@ export function useFleetMetrics(period: PeriodId) {
     ordersByHour.data,
     ordersByHour.isError,
     mWindow.seconds,
-    mWindow.clamped,
     mWindow.from,
     mWindow.to,
     step,

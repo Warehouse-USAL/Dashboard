@@ -648,11 +648,7 @@ export function OrdenesPage() {
           icon={ListChecks}
           label="Órdenes totales"
           value={stats.total.toLocaleString("es-AR")}
-          sub={
-            stats.windowClamped
-              ? "Recortado a 92 días — máximo por consulta"
-              : `Total en el período`
-          }
+          sub="Total en el período"
           tone="info"
           neutral
           source={stats.source}
@@ -714,7 +710,6 @@ export function OrdenesPage() {
               })}
             </div>
           </div>
-          {stats.windowClamped && <ClampNotice />}
         </Panel>
 
         <Panel
@@ -765,7 +760,6 @@ export function OrdenesPage() {
                 : "Sin completadas ni canceladas en el período"}
             </span>
           </div>
-          {stats.windowClamped && <ClampNotice />}
         </Panel>
       </div>
 
@@ -929,7 +923,6 @@ export function OrdenesPage() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          {stats.windowClamped && <ClampNotice />}
         </Panel>
       </div>
 
@@ -1071,7 +1064,6 @@ export function OrdenesPage() {
               })}
             </div>
           </div>
-          {stats.windowClamped && <ClampNotice />}
         </Panel>
       </div>
     </div>
@@ -1222,20 +1214,5 @@ function TableTabs({
         </button>
       ))}
     </div>
-  );
-}
-
-/**
- * Aviso de que un panel de `useOrderStats` muestra menos días de los pedidos.
- *
- * `orders` en modo agregado no admite más de 92 días por consulta (aunque el
- * histórico real cubre un año). Sin este cartel, un rango de 5 meses que se
- * recorta a 3 se lee como que no hay datos más viejos, que es falso.
- */
-function ClampNotice() {
-  return (
-    <p className="text-[10px] text-muted-foreground mt-2">
-      Recortado a 92 días: una consulta de órdenes no puede abarcar más.
-    </p>
   );
 }
