@@ -5,7 +5,6 @@ import { es } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
 import {
   Calendar as CalendarIcon,
-  Filter,
   Download,
   Search,
   ChevronDown,
@@ -79,16 +78,6 @@ const LEGACY_STATE_MAP: Record<string, OrderState> = {
   completada: "completed",
   cancelada: "cancelled",
 };
-
-const PRIORITY_FILTERS: { id: Priority; label: string }[] = [
-  { id: "urgente", label: "Urgente" },
-  { id: "alta", label: "Alta" },
-  { id: "media", label: "Media" },
-  { id: "baja", label: "Baja" },
-];
-const STATE_FILTERS: { id: OrderState; label: string }[] = (
-  Object.keys(STATE_LABELS) as OrderState[]
-).map((id) => ({ id, label: STATE_LABELS[id] }));
 
 function periodLabel(value: PeriodId, range?: DateRange) {
   if (value === "custom") {
@@ -455,12 +444,6 @@ export function OrdenesPage() {
 
   const [period, setPeriod] = useState<PeriodId>("24h");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
-  const [priorityFilter, setPriorityFilter] = useState<Set<Priority>>(
-    new Set(PRIORITY_FILTERS.map((p) => p.id)),
-  );
-  const [stateFilter, setStateFilter] = useState<Set<OrderState>>(
-    new Set(STATE_FILTERS.map((s) => s.id)),
-  );
   const [tableTab, setTableTab] = useState<"todas" | OrderState>("todas");
   const [q, setQ] = useState("");
   // Búsqueda propia del Histórico: no comparte estado con la de Cola (esa busca
@@ -580,13 +563,11 @@ export function OrdenesPage() {
       activeOrders.filter((o) => {
         if (o.state !== "pending" && o.state !== "in_progress") return false;
         if (tableTab !== "todas" && o.state !== tableTab) return false;
-        if (!priorityFilter.has(o.priority as Priority)) return false;
-        if (!stateFilter.has(o.state as OrderState)) return false;
         if (q && !`${o.id} ${o.product} ${o.rover}`.toLowerCase().includes(q.toLowerCase()))
           return false;
         return true;
       }),
-    [activeOrders, tableTab, priorityFilter, stateFilter, q],
+    [activeOrders, tableTab, q],
   );
 
   const {
@@ -602,18 +583,12 @@ export function OrdenesPage() {
   // Histórico real, acotado por el período — reemplaza el array HISTORICO
   // inventado. A diferencia de Cola, acá van TODOS los estados: esto es
   // historial, no una cola de trabajo pendiente. El filtro de fecha ya lo
-  // hizo el backend (from/to en getOrdersInRange) — acá sólo quedan los
-  // filtros de UI (prioridad, estado y búsqueda por id de orden).
+  // hizo el backend (from/to en getOrdersInRange) — acá sólo queda la
+  // búsqueda por id de orden.
   const filteredHist = useMemo(() => {
     const needle = histQ.trim().toLowerCase();
     return histOrders
-      .filter((o) => {
-        const p = (o.priority?.toLowerCase() as Priority) ?? "media";
-        if (!priorityFilter.has(p)) return false;
-        if (!stateFilter.has(o.state as OrderState)) return false;
-        if (needle && !o.id.toLowerCase().includes(needle)) return false;
-        return true;
-      })
+      .filter((o) => !needle || o.id.toLowerCase().includes(needle))
       .map((o) => {
         const t = o.createdAt ? new Date(o.createdAt).getTime() : 0;
         const { items, total, multi } = getOrderItems(o);
@@ -642,7 +617,7 @@ export function OrdenesPage() {
         };
       })
       .sort((a, b) => b.t - a.t);
-  }, [histOrders, priorityFilter, stateFilter, histQ]);
+  }, [histOrders, histQ]);
 
   const {
     page: histPage,
@@ -663,12 +638,6 @@ export function OrdenesPage() {
           onChange={setPeriod}
           range={customRange}
           onRangeChange={setCustomRange}
-        />
-        <FilterMenu
-          priority={priorityFilter}
-          onPriority={setPriorityFilter}
-          state={stateFilter}
-          onState={setStateFilter}
         />
       </div>
 
@@ -1417,107 +1386,5 @@ function RangePicker({
         </div>
       </PopoverContent>
     </Popover>
-  );
-}
-
-function FilterMenu({
-  priority,
-  onPriority,
-  state,
-  onState,
-}: {
-  priority: Set<Priority>;
-  onPriority: (s: Set<Priority>) => void;
-  state: Set<OrderState>;
-  onState: (s: Set<OrderState>) => void;
-}) {
-  const togglePriority = (id: Priority) => {
-    const next = new Set(priority);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onPriority(next);
-  };
-  const toggleState = (id: OrderState) => {
-    const next = new Set(state);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onState(next);
-  };
-  const totalActive =
-    (priority.size < PRIORITY_FILTERS.length ? PRIORITY_FILTERS.length - priority.size : 0) +
-    (state.size < STATE_FILTERS.length ? STATE_FILTERS.length - state.size : 0);
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card hover:bg-secondary/40 text-xs">
-          <Filter className="w-3.5 h-3.5" /> Filtros
-          {totalActive > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px]">
-              {totalActive}
-            </span>
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-60 p-2">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">
-          Prioridad
-        </p>
-        {PRIORITY_FILTERS.map((s) => (
-          <CheckRow
-            key={s.id}
-            on={priority.has(s.id)}
-            label={s.label}
-            onClick={() => togglePriority(s.id)}
-          />
-        ))}
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mt-3 mb-1">
-          Estado
-        </p>
-        {STATE_FILTERS.map((s) => (
-          <CheckRow
-            key={s.id}
-            on={state.has(s.id)}
-            label={s.label}
-            onClick={() => toggleState(s.id)}
-          />
-        ))}
-        <div className="flex justify-between mt-2 pt-2 border-t border-border">
-          <button
-            onClick={() => {
-              onPriority(new Set());
-              onState(new Set());
-            }}
-            className="text-[11px] text-muted-foreground hover:text-foreground px-1"
-          >
-            Limpiar
-          </button>
-          <button
-            onClick={() => {
-              onPriority(new Set(PRIORITY_FILTERS.map((p) => p.id)));
-              onState(new Set(STATE_FILTERS.map((s) => s.id)));
-            }}
-            className="text-[11px] text-primary hover:underline px-1"
-          >
-            Todos
-          </button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function CheckRow({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-secondary/60"
-    >
-      <span
-        className={`w-3.5 h-3.5 rounded border ${on ? "bg-primary border-primary" : "border-border"} flex items-center justify-center`}
-      >
-        {on && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
-      </span>
-      {label}
-    </button>
   );
 }

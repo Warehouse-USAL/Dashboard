@@ -6,7 +6,6 @@ import type { DateRange } from "react-day-picker";
 import {
   Activity,
   Calendar as CalendarIcon,
-  Filter,
   Truck,
   Zap,
   Clock,
@@ -35,7 +34,7 @@ import type { Temporality } from "@/lib/temporality";
 import { useFleetMetrics, type FleetVehicleStats } from "@/hooks/useFleetMetrics";
 import { formatDuration, formatInstant } from "@/lib/metrics-api";
 import type { DataSource } from "@/lib/data-source";
-import type { Rover, RoverState } from "@/lib/dashboard-data";
+import type { Rover } from "@/lib/dashboard-data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -64,13 +63,6 @@ function periodLabel(value: PeriodId, range?: DateRange) {
   }
   return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
 }
-
-const STATE_FILTERS: { id: RoverState; label: string }[] = [
-  { id: "busy", label: "Busy" },
-  { id: "idle", label: "Idle" },
-  { id: "error", label: "Error" },
-  { id: "offline", label: "Offline" },
-];
 
 /** Una por rover en los gráficos multi-serie. Se cicla si hay más rovers. */
 const SERIES_COLORS = [
@@ -125,9 +117,6 @@ function RoversPage() {
 
   const [period, setPeriod] = useState<PeriodId>("24h");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
-  const [stateFilter, setStateFilter] = useState<Set<RoverState>>(
-    new Set(STATE_FILTERS.map((s) => s.id)),
-  );
 
   const fleet = useFleetMetrics(period, customRange);
 
@@ -148,11 +137,6 @@ function RoversPage() {
     [fleet.stepSeconds],
   );
 
-  const filteredRovers = useMemo(
-    () => rovers.filter((r) => stateFilter.has(r.state)),
-    [rovers, stateFilter],
-  );
-
   const {
     page: roversPage,
     setPage: setRoversPage,
@@ -160,8 +144,8 @@ function RoversPage() {
     pageItems: pagedRovers,
     from: roversFrom,
     to: roversTo,
-    total: roversFilteredTotal,
-  } = usePagedList(filteredRovers, 10);
+    total: roversTotal,
+  } = usePagedList(rovers, 10);
 
   const totalRovers = rovers.length;
   const ocupados = rovers.filter((r) => r.state === "busy").length;
@@ -242,7 +226,6 @@ function RoversPage() {
           range={customRange}
           onRangeChange={setCustomRange}
         />
-        <FilterMenu selected={stateFilter} onChange={setStateFilter} />
       </div>
 
       {/* KPIs */}
@@ -258,9 +241,7 @@ function RoversPage() {
         action={
           <div className="flex items-center gap-2">
             <TemporalBadge value={live()} />
-            <span className="text-[11px] text-muted-foreground">
-              {filteredRovers.length} de {totalRovers}
-            </span>
+            <span className="text-[11px] text-muted-foreground">{totalRovers} rovers</span>
           </div>
         }
       >
@@ -280,10 +261,10 @@ function RoversPage() {
               {pagedRovers.map((r) => (
                 <RoverRow key={r.id} r={r} />
               ))}
-              {filteredRovers.length === 0 && (
+              {rovers.length === 0 && (
                 <tr>
                   <td colSpan={6} className="py-6 text-center text-xs text-muted-foreground">
-                    Sin rovers para los filtros seleccionados
+                    Sin rovers registrados
                   </td>
                 </tr>
               )}
@@ -296,7 +277,7 @@ function RoversPage() {
           onPageChange={setRoversPage}
           from={roversFrom}
           to={roversTo}
-          total={roversFilteredTotal}
+          total={roversTotal}
           itemLabel="rovers"
         />
         <div className="flex flex-wrap gap-4 mt-4 text-[11px] text-muted-foreground">
@@ -713,74 +694,6 @@ function PeriodPicker({
               </div>
             </div>
           )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function FilterMenu({
-  selected,
-  onChange,
-}: {
-  selected: Set<RoverState>;
-  onChange: (s: Set<RoverState>) => void;
-}) {
-  const toggle = (id: RoverState) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onChange(next);
-  };
-  const allOn = selected.size === STATE_FILTERS.length;
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card hover:bg-secondary/40 text-xs">
-          <Filter className="w-3.5 h-3.5" /> Filtros
-          {!allOn && (
-            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px]">
-              {selected.size}
-            </span>
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-56 p-2">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">
-          Estado
-        </p>
-        {STATE_FILTERS.map((s) => {
-          const on = selected.has(s.id);
-          return (
-            <button
-              key={s.id}
-              onClick={() => toggle(s.id)}
-              className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded hover:bg-secondary/60"
-            >
-              <span className="flex items-center gap-2">
-                <span
-                  className={`w-3.5 h-3.5 rounded border ${on ? "bg-primary border-primary" : "border-border"} flex items-center justify-center`}
-                >
-                  {on && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
-                </span>
-                {s.label}
-              </span>
-            </button>
-          );
-        })}
-        <div className="flex justify-between mt-2 pt-2 border-t border-border">
-          <button
-            onClick={() => onChange(new Set())}
-            className="text-[11px] text-muted-foreground hover:text-foreground px-1"
-          >
-            Limpiar
-          </button>
-          <button
-            onClick={() => onChange(new Set(STATE_FILTERS.map((s) => s.id)))}
-            className="text-[11px] text-primary hover:underline px-1"
-          >
-            Todos
-          </button>
         </div>
       </PopoverContent>
     </Popover>

@@ -10,7 +10,6 @@ import {
   Clock,
   TrendingDown,
   Search,
-  Filter,
   Download,
   ChevronDown,
   ChevronUp,
@@ -90,9 +89,6 @@ type SortKey =
   | "lastOrderDaysAgo"
   | "suggestedQuantity"
   | "status";
-
-const ZONES = ["A", "B", "C", "D", "E"] as const;
-type Zone = (typeof ZONES)[number];
 
 // ─── Mock movimientos data (no endpoint in RFC) ───────────────────────────────
 
@@ -226,8 +222,6 @@ function restockHint(r: FrontendRestock): string {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 function InventarioPage() {
-  const [zoneFilter, setZoneFilter] = useState<Set<Zone>>(new Set(ZONES));
-  const [statusFilter, setStatusFilter] = useState<Set<ProductStatus>>(new Set(STATUS_LIST));
   const [tableTab, setTableTab] = useState<"todos" | ProductStatus>("todos");
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("sku");
@@ -263,14 +257,12 @@ function InventarioPage() {
 
   // Zone occupancy — real Σ current_stock / Σ maximum_capacity per zone from backend positions
   const occupancy = useMemo(() => {
-    return zoneOccupancy
-      .filter((z) => zoneFilter.has(z.zone as Zone) || !ZONES.includes(z.zone as Zone))
-      .map((z) => {
-        const pct = z.capacity > 0 ? Math.min(100, Math.round((z.stock / z.capacity) * 100)) : 0;
-        const tone = pct >= 85 ? "bg-rose-500" : pct >= 65 ? "bg-amber-500" : "bg-emerald-500";
-        return { zone: z.zone, used: z.stock, cap: z.capacity, pct, tone };
-      });
-  }, [zoneOccupancy, zoneFilter]);
+    return zoneOccupancy.map((z) => {
+      const pct = z.capacity > 0 ? Math.min(100, Math.round((z.stock / z.capacity) * 100)) : 0;
+      const tone = pct >= 85 ? "bg-rose-500" : pct >= 65 ? "bg-amber-500" : "bg-emerald-500";
+      return { zone: z.zone, used: z.stock, cap: z.capacity, pct, tone };
+    });
+  }, [zoneOccupancy]);
 
   // Top 5 by daily demand (rotation)
   const topRotacion = useMemo(
@@ -295,9 +287,6 @@ function InventarioPage() {
   const filteredTable = useMemo(() => {
     let list = products.filter((p) => {
       if (tableTab !== "todos" && !matchesStatus(p, tableTab)) return false;
-      if (!STATUS_LIST.some((s) => statusFilter.has(s) && matchesStatus(p, s))) return false;
-      const z = p.zone.split("-")[0] as Zone;
-      if ((ZONES as readonly string[]).includes(z) && !zoneFilter.has(z)) return false;
       if (q && !`${p.sku} ${p.name} ${p.positionDisplay}`.toLowerCase().includes(q.toLowerCase()))
         return false;
       return true;
@@ -347,7 +336,7 @@ function InventarioPage() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [products, tableTab, statusFilter, zoneFilter, q, sortKey, sortDir]);
+  }, [products, tableTab, q, sortKey, sortDir]);
 
   const {
     page: productsPage,
@@ -472,12 +461,6 @@ function InventarioPage() {
                 className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border bg-secondary/40 focus:outline-none focus:border-primary w-36"
               />
             </div>
-            <FilterMenu
-              zone={zoneFilter}
-              onZone={setZoneFilter}
-              status={statusFilter}
-              onStatus={setStatusFilter}
-            />
           </div>
         }
       >
@@ -1035,106 +1018,6 @@ function TableTabs({
         </button>
       ))}
     </div>
-  );
-}
-
-function FilterMenu({
-  zone,
-  onZone,
-  status,
-  onStatus,
-}: {
-  zone: Set<Zone>;
-  onZone: (s: Set<Zone>) => void;
-  status: Set<ProductStatus>;
-  onStatus: (s: Set<ProductStatus>) => void;
-}) {
-  const toggleZone = (z: Zone) => {
-    const next = new Set(zone);
-    if (next.has(z)) next.delete(z);
-    else next.add(z);
-    onZone(next);
-  };
-  const toggleStatus = (s: ProductStatus) => {
-    const next = new Set(status);
-    if (next.has(s)) next.delete(s);
-    else next.add(s);
-    onStatus(next);
-  };
-  const active =
-    (zone.size < ZONES.length ? ZONES.length - zone.size : 0) +
-    (status.size < STATUS_LIST.length ? STATUS_LIST.length - status.size : 0);
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card hover:bg-secondary/40 text-xs">
-          <Filter className="w-3.5 h-3.5" /> Filtros
-          {active > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px]">
-              {active}
-            </span>
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-60 p-2">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">
-          Estado
-        </p>
-        {STATUS_LIST.map((s) => (
-          <CheckRow
-            key={s}
-            on={status.has(s)}
-            label={STATUS_LABEL[s]}
-            onClick={() => toggleStatus(s)}
-          />
-        ))}
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mt-3 mb-1">
-          Zona
-        </p>
-        {ZONES.map((z) => (
-          <CheckRow key={z} on={zone.has(z)} label={`Zona ${z}`} onClick={() => toggleZone(z)} />
-        ))}
-        <div className="flex justify-between mt-2 pt-2 border-t border-border">
-          <button
-            onClick={() => {
-              onStatus(new Set());
-              onZone(new Set());
-            }}
-            className="text-[11px] text-muted-foreground hover:text-foreground px-1"
-          >
-            Limpiar
-          </button>
-          <button
-            onClick={() => {
-              onStatus(new Set(STATUS_LIST));
-              onZone(new Set(ZONES));
-            }}
-            className="text-[11px] text-primary hover:underline px-1"
-          >
-            Todos
-          </button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function CheckRow({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-secondary/60"
-    >
-      <span
-        className={cn(
-          "w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0",
-          on ? "bg-primary border-primary" : "border-border",
-        )}
-      >
-        {on && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
-      </span>
-      {label}
-    </button>
   );
 }
 
