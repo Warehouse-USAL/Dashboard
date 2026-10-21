@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { DateRange } from "react-day-picker";
 import { periodToBounds, type PeriodId } from "@/lib/dateRange";
 import {
   avgPoints,
@@ -17,6 +16,8 @@ import {
 } from "@/lib/metrics-api";
 import { ordersWindow, queryEntity } from "@/lib/query-api";
 import { worstSource, type DataSource } from "@/lib/data-source";
+import { aggregatePoints, bucketStart, calendarGrid, stepGrid } from "@/lib/series-fill";
+import { formatMonthStart, granularityFor, metricsStepFor } from "@/lib/granularity";
 
 /**
  * El estado al que transiciona un rover cuando falla de verdad.
@@ -68,20 +69,17 @@ export type ActivityPoint = { t: number; label: string; rovers: number; orders: 
  * Las divisiones (MTBF, MTTR, porcentajes del Pareto) se hacen acá, no en el
  * backend, que publica sólo las señales crudas.
  */
-export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
-  const bounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+export function useFleetMetrics(period: PeriodId) {
+  const bounds = useMemo(() => periodToBounds(period), [period]);
   const mWindow = useMemo(() => metricsWindow(bounds), [bounds]);
   const oWindow = useMemo(() => ordersWindow(bounds), [bounds]);
 
-  // Step adaptativo: el backend rechaza más de 11000 puntos por serie, y un
-  // gráfico con 2000 barras tampoco se lee. ~1h para ventanas cortas, más grueso
-  // a medida que la ventana crece.
-  const step = useMemo(() => {
-    const hours = mWindow.seconds / 3600;
-    if (hours <= 26) return "1h";
-    if (hours <= 24 * 8) return "6h";
-    return "1d";
-  }, [mWindow.seconds]);
+  // Agrupación de los gráficos (hora, día, semana o mes): una sola tabla por
+  // período, la misma que usa Órdenes (ver granularity.ts). El backend sólo
+  // acepta pasos fijos, así que para semana y mes se pide por día y se agrupa
+  // acá; 365 puntos por serie están muy lejos del tope de 11 000.
+  const kind = granularityFor(period);
+  const step = metricsStepFor(kind);
 
   const metricsKey = [mWindow.from, mWindow.to, step] as const;
 
@@ -208,15 +206,24 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
   });
 
   // Receta 9 — órdenes por hora, la otra mitad del gráfico de actividad.
+  //
+  // 1000 filas es el tope del backend en modo agregado: una ventana de hasta 41
+  // días entra por hora (984), pero una de 90 días o un año no, y el backend
+  // cortaría los buckets más viejos en silencio. Para esas se pide por día; el
+  // paso de las series ya es de 6h o 1d, así que no se pierde resolución útil.
+  const ordersBucket = oWindow.days <= 41 ? "hour" : "day";
   const ordersByHour = useQuery({
-    queryKey: ["orders-by-hour", oWindow.from.toISOString(), oWindow.to.toISOString()],
+    queryKey: [
+      "orders-by-hour",
+      oWindow.from.toISOString(),
+      oWindow.to.toISOString(),
+      ordersBucket,
+    ],
     queryFn: () =>
       queryEntity<{ hour: string; orders: number }>("orders", {
         filters: oWindow.filters,
-        group_by: [{ field: "created_at", bucket: "hour", as: "hour" }],
+        group_by: [{ field: "created_at", bucket: ordersBucket, as: "hour" }],
         aggregates: [{ op: "count", as: "orders" }],
-        // Una ventana de 30 días tiene 720 horas; 1000 es el tope del backend en
-        // modo agregado. Con 500 podríamos perder buckets en un almacén activo.
         size: 1000,
       }),
     refetchInterval: 30_000,
@@ -302,17 +309,43 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
 
     // Histórico: una fila por instante, una columna por rover, para graficarlo
     // tal cual sin transformar en el componente.
-    const timestamps = new Set<number>();
-    failureSeries.forEach((s) => s.points.forEach(([t]) => timestamps.add(t)));
-    const failureHistory: RoverFailurePoint[] = [...timestamps]
-      .sort((a, b) => a - b)
-      .map((t) => {
-        const row = { t } as RoverFailurePoint;
-        for (const [vehicleId, s] of failuresByVehicle) {
-          row[vehicleId] = s.points.find(([pt]) => pt === t)?.[1] ?? 0;
-        }
-        return row;
-      });
+    //
+    // Una fila por intervalo del período, no sólo por los que trae el backend: un
+    // intervalo sin fallas no vuelve en la serie, y sin rellenarlo el eje se
+    // saltea los días sin fallas y termina en la última. Sin ninguna serie la
+    // grilla queda vacía y la página muestra "sin fallas registradas".
+    //
+    // Con agrupación por semana o mes (`calendar`), las series diarias se suman
+    // por intervalo de calendario de Buenos Aires.
+    const stepSeconds = stepToSeconds(step);
+    const calendar = kind === "week" || kind === "month";
+    // Duración del intervalo que ve el gráfico (para formatear el eje de tiempo).
+    const displaySeconds =
+      kind === "week" ? 7 * 86_400 : kind === "month" ? 30 * 86_400 : stepSeconds;
+    const fromSeconds = Date.parse(mWindow.from) / 1000;
+    const toSeconds = Date.parse(mWindow.to) / 1000;
+    const firstFailureT = Math.min(...failureSeries.map((s) => s.points[0]?.[0] ?? Infinity));
+    const hasFailures = Number.isFinite(firstFailureT);
+    const failureGrid =
+      kind === "week" || kind === "month"
+        ? calendarGrid(fromSeconds, toSeconds, kind, hasFailures)
+        : stepGrid(fromSeconds, toSeconds, stepSeconds, hasFailures ? firstFailureT : undefined);
+    const failureByVehicleAndT = new Map<string, Map<number, number>>();
+    for (const [vehicleId, s] of failuresByVehicle) {
+      failureByVehicleAndT.set(
+        vehicleId,
+        kind === "week" || kind === "month"
+          ? aggregatePoints(s.points, kind, "sum", fromSeconds, toSeconds)
+          : new Map(s.points),
+      );
+    }
+    const failureHistory: RoverFailurePoint[] = failureGrid.map((t) => {
+      const row = { t } as RoverFailurePoint;
+      for (const [vehicleId] of failuresByVehicle) {
+        row[vehicleId] = failureByVehicleAndT.get(vehicleId)?.get(t) ?? 0;
+      }
+      return row;
+    });
 
     const paretoSeries = seriesOf(pareto.data);
     const paretoRaw = paretoSeries
@@ -336,27 +369,47 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     //
     // Los buckets vienen como "2026-08-01T19:00:00" en hora local de Buenos
     // Aires, sin zona; se parsean como local para que no se corran tres horas.
-    const points = activeSeries[0]?.points ?? [];
-    const stepSeconds = stepToSeconds(step);
-    const firstT = points[0]?.[0];
+    //
+    // La serie de rovers ocupados sólo trae los intervalos en que había alguno
+    // BUSY (sin ninguno no hay nada que contar), así que se rellena con la grilla
+    // completa del período. Eso también es lo que hace válida la cuenta por
+    // índice de abajo: con puntos salteados caía en el intervalo equivocado.
+    //
+    // "Rovers ocupados" es un promedio: por semana o mes se promedia sobre los
+    // días del intervalo (los sin rovers ocupados cuentan como 0).
+    const activeRaw = activeSeries[0]?.points ?? [];
+    const activePoints: Map<number, number> =
+      kind === "week" || kind === "month"
+        ? aggregatePoints(activeRaw, kind, "avg", fromSeconds, toSeconds)
+        : new Map(activeRaw);
+    const activityGrid =
+      kind === "week" || kind === "month"
+        ? calendarGrid(fromSeconds, toSeconds, kind, activeRaw.length > 0)
+        : stepGrid(fromSeconds, toSeconds, stepSeconds, activeRaw[0]?.[0]);
+    const activityGridSet = new Set(activityGrid);
+    const firstT = activityGrid[0];
     const ordersByPoint = new Map<number, number>();
     if (firstT !== undefined) {
       for (const row of ordersByHour.data?.items ?? []) {
         const t = localHourToEpoch(row.hour);
         if (t < firstT) continue; // fuera del rango que grafica la serie
-        // Los puntos están equiespaciados por `step`, así que el índice sale de
-        // una división en vez de buscar el intervalo que lo contiene.
-        const pointT = points[Math.floor((t - firstT) / stepSeconds)]?.[0];
-        if (pointT !== undefined) {
+        // Semana y mes caen en el intervalo de calendario que los contiene. En
+        // hora y día la grilla es equiespaciada por `step`, así que el índice sale
+        // de una división en vez de buscar el intervalo que lo contiene.
+        const pointT =
+          kind === "week" || kind === "month"
+            ? bucketStart(t, kind)
+            : activityGrid[Math.floor((t - firstT) / stepSeconds)];
+        if (pointT !== undefined && activityGridSet.has(pointT)) {
           ordersByPoint.set(pointT, (ordersByPoint.get(pointT) ?? 0) + row.orders);
         }
       }
     }
 
-    const activity: ActivityPoint[] = points.map(([t, rovers]) => ({
+    const activity: ActivityPoint[] = activityGrid.map((t) => ({
       t,
-      label: formatInstant(t, stepSeconds),
-      rovers,
+      label: calendar && kind === "month" ? formatMonthStart(t) : formatInstant(t, displaySeconds),
+      rovers: activePoints.get(t) ?? 0,
       orders: ordersByPoint.get(t) ?? 0,
     }));
 
@@ -379,16 +432,10 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
       vehicleIds: [...failuresByVehicle.keys()].sort(),
       paretoBars,
       activity,
-      /**
-       * True cuando el período elegido excedía lo que una consulta puede abarcar
-       * y se recortó. Los gráficos muestran menos días de los pedidos, así que
-       * la página TIENE que decirlo: si no, se lee como que no hay datos viejos.
-       */
-      clampedToRetention: mWindow.clamped,
-      /** Días que los gráficos de flota terminan mostrando, ya recortados. */
-      shownDays: Math.round(mWindow.seconds / 86_400),
-      /** Paso de las series; el eje de tiempo ajusta su formato según esto. */
-      stepSeconds: stepToSeconds(step),
+      /** Duración de cada intervalo del gráfico; el eje de tiempo ajusta su formato según esto. */
+      stepSeconds: displaySeconds,
+      /** Agrupación de los gráficos: hora, día, semana o mes. */
+      granularity: kind,
       windowSeconds: mWindow.seconds,
       metricsSource,
       ordersSource,
@@ -409,8 +456,10 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     ordersByHour.data,
     ordersByHour.isError,
     mWindow.seconds,
-    mWindow.clamped,
+    mWindow.from,
+    mWindow.to,
     step,
+    kind,
   ]);
 }
 
@@ -441,5 +490,8 @@ function averageOrNull(values: Array<number | null>): number | null {
  * órdenes quedarían tres horas corridas respecto de las series.
  */
 function localHourToEpoch(bucket: string): number {
-  return Math.floor(new Date(bucket).getTime() / 1000);
+  // Un bucket diario ("2026-08-01") sin hora se parsea como medianoche UTC, que
+  // en Buenos Aires cae el día anterior; con la hora explícita se lee como local.
+  const local = bucket.length === 10 ? `${bucket}T00:00:00` : bucket;
+  return Math.floor(new Date(local).getTime() / 1000);
 }

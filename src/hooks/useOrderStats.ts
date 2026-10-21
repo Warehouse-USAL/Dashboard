@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { DateRange } from "react-day-picker";
 import { mapOrderPriority } from "@/lib/api";
 import { periodToBounds, type PeriodId } from "@/lib/dateRange";
 import { ordersWindow, queryEntity } from "@/lib/query-api";
 import { worstSource, type DataSource } from "@/lib/data-source";
+import { bucketKeys, fillBuckets, type BucketKind } from "@/lib/series-fill";
+import { formatMonthStart, granularityFor } from "@/lib/granularity";
 
 export type OrderState = "pending" | "in_progress" | "completed" | "cancelled";
 export type Priority = "urgente" | "alta" | "media" | "baja";
@@ -27,12 +28,14 @@ export type HourlyPoint = { bucket: string; label: string; orders: number };
  * pregunta ("cuántas y de qué tipo") mirada de varios ángulos, no hace falta
  * pedirla cuatro veces.
  */
-export function useOrderStats(period: PeriodId, customRange: DateRange | undefined, slaMs: number) {
-  const bounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+export function useOrderStats(period: PeriodId, slaMs: number) {
+  const bounds = useMemo(() => periodToBounds(period), [period]);
   const oWindow = useMemo(() => ordersWindow(bounds), [bounds]);
-  // Con 92 días como máximo, buckets por hora darían ~2200 puntos — gráfico
-  // ilegible. Sólo tiene sentido en la ventana más chica.
-  const bucket = period === "24h" ? "hour" : "day";
+  // Agrupación del gráfico (hora, día, semana o mes), igual para todos los
+  // gráficos de series. El backend sólo agrupa por hora o por día: semana y mes
+  // se arman acá sumando los días (365 filas como máximo, el tope es 1000).
+  const kind = granularityFor(period);
+  const bucket = kind === "hour" ? "hour" : "day";
 
   const windowKey = [oWindow.from.toISOString(), oWindow.to.toISOString()] as const;
 
@@ -82,7 +85,7 @@ export function useOrderStats(period: PeriodId, customRange: DateRange | undefin
         filters: oWindow.filters,
         group_by: [{ field: "created_at", bucket, as: "bucket" }],
         aggregates: [{ op: "count", as: "orders" }],
-        // 92 días en buckets diarios son ~92 filas; el tope de 1000 sobra.
+        // Un año en buckets diarios son ~365 filas; el tope de 1000 sobra.
         size: 1000,
       }),
     refetchInterval: 30_000,
@@ -134,13 +137,18 @@ export function useOrderStats(period: PeriodId, customRange: DateRange | undefin
         ? Math.round((counts.completed / (counts.completed + counts.cancelled)) * 100)
         : null;
 
-    const hourly: HourlyPoint[] = [...(byBucket.data?.items ?? [])]
-      .sort((a, b) => a.bucket.localeCompare(b.bucket))
-      .map((r) => ({
-        bucket: r.bucket,
-        label: formatBucketLabel(r.bucket, bucket),
-        orders: r.orders,
-      }));
+    // Grilla completa del período: los intervalos sin órdenes no vuelven del
+    // backend, y sin rellenarlos el eje termina en la última orden en vez de hoy.
+    // Mientras carga no se rellena, para no mostrar un período entero en cero.
+    const hourly: HourlyPoint[] = fillBuckets(
+      byBucket.data?.items ?? [],
+      byBucket.data ? bucketKeys(oWindow.from, oWindow.to, kind) : [],
+      kind,
+    ).map((r) => ({
+      bucket: r.bucket,
+      label: formatBucketLabel(r.bucket, kind),
+      orders: r.orders,
+    }));
 
     // Objetos nuevos armados a partir de campos primitivos, no las queries
     // completas: así el linter de deps del useMemo puede verificar la lista de
@@ -161,8 +169,9 @@ export function useOrderStats(period: PeriodId, customRange: DateRange | undefin
       cycleTimeMin,
       compliancePct,
       hourly,
+      /** Agrupación de `hourly`: hora, día, semana o mes según el período. */
+      bucketKind: kind,
       /** True si el rango elegido excedía los 92 días que `orders` admite por consulta. */
-      windowClamped: oWindow.clamped,
       source,
       isLoading: byStatus.isLoading || byPriority.isLoading,
     };
@@ -180,19 +189,22 @@ export function useOrderStats(period: PeriodId, customRange: DateRange | undefin
     byBucket.isLoading,
     byBucket.isError,
     oWindow.days,
-    oWindow.clamped,
-    bucket,
+    oWindow.from,
+    oWindow.to,
+    kind,
   ]);
 }
 
-export function formatBucketLabel(bucket: string, kind: "hour" | "day"): string {
+export function formatBucketLabel(bucket: string, kind: BucketKind): string {
   // Los buckets ya vienen resueltos a la zona pedida (Buenos Aires por
   // defecto) como strings sin sufijo de zona. Parsearlos con Date acá
   // reintroduciría el problema que evitan: un bucket de sólo fecha
   // ("2026-08-01") se lee como medianoche UTC, que en Buenos Aires cae en el
   // día anterior. Se recortan como texto en vez de pasar por Date.
   if (kind === "hour") return bucket.split("T")[1]?.slice(0, 5) ?? bucket;
-  const [, month, day] = bucket.split("-");
+  const [year, month, day] = bucket.split("-");
+  // Semana: el día es el lunes en que empieza. Mes: "oct 26".
+  if (kind === "month") return formatMonthStart(Date.UTC(+year, +month - 1, 1) / 1000 + 3 * 3_600);
   return `${day}/${month}`;
 }
 

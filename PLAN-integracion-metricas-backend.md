@@ -68,6 +68,13 @@ started_at, completed_at, cancel_reason`, `items.sku`, `items.product_id`, `item
 
 **Límites duros:**
 
+> **Actualización (2026-10-21):** los topes de ventana de las dos primeras filas de abajo
+> (92 d en `orders`, 31 d en `/metrics/query`) ya no rigen. Con consultas de sólo lectura se
+> verificó que `/metrics/query` acepta al menos 730 días a paso diario y `orders` acepta 730
+> (rechaza 1000 con `QUERY_TOO_BROAD`). El dashboard se impone 365 días (`MAX_*_WINDOW_DAYS`).
+> Sigue vigente el tope de puntos por serie: 30 días a paso de 1 min se rechaza. Los demás
+> números de la tabla no se volvieron a probar.
+
 |                                   |                                                                                                               |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `orders` agregado                 | ventana `created_at` obligatoria (`gte`/`gt`), máx **92 días** → si no: `UNBOUNDED_RANGE` / `QUERY_TOO_BROAD` |

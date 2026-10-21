@@ -109,18 +109,20 @@ export async function queryEntity<T = Record<string, unknown>>(
 }
 
 /**
- * Tope de ventana que `orders` acepta en modo agregado (AggregationTranslator
- * MAX_RANGE). Más que esto es `QUERY_TOO_BROAD`.
+ * Tope de ventana que le imponemos a `orders` en modo agregado.
+ *
+ * El backend ya no limita a 92 días: se probó con consultas de sólo lectura y
+ * acepta 730, y rechaza 1000 con `QUERY_TOO_BROAD`. Dejamos 365 porque es lo
+ * máximo que ofrece el PeriodPicker ("Último año").
  */
-export const MAX_ORDERS_WINDOW_DAYS = 92;
+export const MAX_ORDERS_WINDOW_DAYS = 365;
 
 /**
  * Los dos filtros de `created_at` que toda agregación sobre `orders` exige.
  *
- * Recorta el extremo viejo a 92 días en vez de dejar que el backend rechace la
- * consulta: el PeriodPicker permite rangos personalizados de cualquier ancho, y
- * un panel que muestra 92 días es mejor que uno que muestra un error. Devuelve
- * `clamped` para que quien llama pueda avisarlo.
+ * Recorta el extremo viejo al tope en vez de dejar que el backend rechace la
+ * consulta. Con los períodos fijos del PeriodPicker nunca se recorta; queda como
+ * red de seguridad. Devuelve `clamped` para que quien llama pueda avisarlo.
  *
  * Sólo para `orders`. En `positions`/`products`/`vehicles` filtrar por fecha
  * está prohibido: descartaría en silencio el stock más viejo.
