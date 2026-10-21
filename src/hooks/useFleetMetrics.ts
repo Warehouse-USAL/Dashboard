@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { DateRange } from "react-day-picker";
 import { periodToBounds, type PeriodId } from "@/lib/dateRange";
 import {
   avgPoints,
@@ -69,8 +68,8 @@ export type ActivityPoint = { t: number; label: string; rovers: number; orders: 
  * Las divisiones (MTBF, MTTR, porcentajes del Pareto) se hacen acá, no en el
  * backend, que publica sólo las señales crudas.
  */
-export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
-  const bounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+export function useFleetMetrics(period: PeriodId) {
+  const bounds = useMemo(() => periodToBounds(period), [period]);
   const mWindow = useMemo(() => metricsWindow(bounds), [bounds]);
   const oWindow = useMemo(() => ordersWindow(bounds), [bounds]);
 
@@ -209,15 +208,24 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
   });
 
   // Receta 9 — órdenes por hora, la otra mitad del gráfico de actividad.
+  //
+  // 1000 filas es el tope del backend en modo agregado: una ventana de hasta 41
+  // días entra por hora (984), pero una de 90 días o un año no, y el backend
+  // cortaría los buckets más viejos en silencio. Para esas se pide por día; el
+  // paso de las series ya es de 6h o 1d, así que no se pierde resolución útil.
+  const ordersBucket = oWindow.days <= 41 ? "hour" : "day";
   const ordersByHour = useQuery({
-    queryKey: ["orders-by-hour", oWindow.from.toISOString(), oWindow.to.toISOString()],
+    queryKey: [
+      "orders-by-hour",
+      oWindow.from.toISOString(),
+      oWindow.to.toISOString(),
+      ordersBucket,
+    ],
     queryFn: () =>
       queryEntity<{ hour: string; orders: number }>("orders", {
         filters: oWindow.filters,
-        group_by: [{ field: "created_at", bucket: "hour", as: "hour" }],
+        group_by: [{ field: "created_at", bucket: ordersBucket, as: "hour" }],
         aggregates: [{ op: "count", as: "orders" }],
-        // Una ventana de 30 días tiene 720 horas; 1000 es el tope del backend en
-        // modo agregado. Con 500 podríamos perder buckets en un almacén activo.
         size: 1000,
       }),
     refetchInterval: 30_000,
@@ -469,5 +477,8 @@ function averageOrNull(values: Array<number | null>): number | null {
  * órdenes quedarían tres horas corridas respecto de las series.
  */
 function localHourToEpoch(bucket: string): number {
-  return Math.floor(new Date(bucket).getTime() / 1000);
+  // Un bucket diario ("2026-08-01") sin hora se parsea como medianoche UTC, que
+  // en Buenos Aires cae el día anterior; con la hora explícita se lee como local.
+  const local = bucket.length === 10 ? `${bucket}T00:00:00` : bucket;
+  return Math.floor(new Date(local).getTime() / 1000);
 }

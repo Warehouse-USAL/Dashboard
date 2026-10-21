@@ -1,15 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { es } from "date-fns/locale";
-import type { DateRange } from "react-day-picker";
 import {
-  Calendar as CalendarIcon,
   Download,
   Search,
   ChevronDown,
   ChevronRight,
-  Check,
   Gauge,
   Timer,
   ShieldCheck,
@@ -36,9 +32,8 @@ import { live, period as periodTemporal } from "@/lib/temporality";
 import type { Temporality } from "@/lib/temporality";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
-import { periodToBounds } from "@/lib/dateRange";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+import { periodLabel, periodToBounds, type PeriodId } from "@/lib/dateRange";
+import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_dash/ordenes-v2")({
@@ -48,15 +43,6 @@ export const Route = createFileRoute("/_dash/ordenes-v2")({
 
 /** SLA target: máximo tiempo permitido (minutos) desde creación hasta completado */
 const SLA_MINUTES = 5;
-
-const PERIOD_OPTIONS = [
-  { id: "24h", label: "Últimas 24 horas" },
-  { id: "7d", label: "Últimos 7 días" },
-  { id: "30d", label: "Últimos 30 días" },
-  { id: "90d", label: "Últimos 90 días" },
-  { id: "custom", label: "Rango personalizado" },
-] as const;
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"];
 
 // Las cuatro de OrderPriority en el backend (LOW/MEDIUM/HIGH/URGENT), traducidas
 // por mapOrderPriority. Antes eran tres porque el backend no mandaba prioridad y
@@ -78,16 +64,6 @@ const LEGACY_STATE_MAP: Record<string, OrderState> = {
   completada: "completed",
   cancelada: "cancelled",
 };
-
-function periodLabel(value: PeriodId, range?: DateRange) {
-  if (value === "custom") {
-    if (range?.from && range?.to)
-      return `${format(range.from, "dd/MM/yy")} – ${format(range.to, "dd/MM/yy")}`;
-    if (range?.from) return `Desde ${format(range.from, "dd/MM/yy")}`;
-    return "Rango personalizado";
-  }
-  return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
-}
 
 // histórico sintético (en producción vendría del backend filtrado por rango)
 type HistRow = {
@@ -443,7 +419,6 @@ export function OrdenesPage() {
   );
 
   const [period, setPeriod] = useState<PeriodId>("24h");
-  const [customRange, setCustomRange] = useState<DateRange | undefined>();
   const [tableTab, setTableTab] = useState<"todas" | OrderState>("todas");
   const [q, setQ] = useState("");
   // Búsqueda propia del Histórico: no comparte estado con la de Cola (esa busca
@@ -454,7 +429,7 @@ export function OrdenesPage() {
   // Sigue haciendo falta sólo para "Histórico de órdenes" — el resto de los
   // paneles que usaban esto ahora leen de useOrderStats, que pide su propia
   // ventana acotada directo al backend.
-  const dateBounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+  const dateBounds = useMemo(() => periodToBounds(period), [period]);
 
   // Histórico: TODOS los estados dentro del período elegido, pidiendo por
   // rango de fecha y paginando de verdad (ver getOrdersInRange() en
@@ -487,7 +462,7 @@ export function OrdenesPage() {
   // 50 filas de GET /orders (contábamos en JS sobre como mucho 50, nunca 729),
   // y una ventana fija de "últimas 24h" en Completadas/hora, Cycle time y SLA
   // que ignoraba el picker por completo.
-  const stats = useOrderStats(period, customRange, SLA_MINUTES * 60_000);
+  const stats = useOrderStats(period, SLA_MINUTES * 60_000);
 
   // Aging is a live snapshot of what's currently open — intentionally NOT
   // date-filtered (an order stuck since last week should still show up here).
@@ -633,12 +608,7 @@ export function OrdenesPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 flex items-end justify-end gap-2 flex-wrap text-xs">
-        <PeriodPicker
-          value={period}
-          onChange={setPeriod}
-          range={customRange}
-          onRangeChange={setCustomRange}
-        />
+        <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
       {/* KPIs */}
@@ -647,31 +617,31 @@ export function OrdenesPage() {
           icon={Gauge}
           label="Completadas / hora"
           value={stats.ordersPerHour.toFixed(2)}
-          sub={`Promedio · ${periodLabel(period, customRange)}`}
+          sub={`Promedio · ${periodLabel(period)}`}
           tone="primary"
           neutral
           source={stats.source}
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
         />
         <KpiCard
           icon={Timer}
           label="Cycle time prom."
           value={stats.cycleTimeMin !== null ? `${stats.cycleTimeMin} min` : "—"}
-          sub={periodLabel(period, customRange)}
+          sub={periodLabel(period)}
           tone="warning"
           neutral
           source={stats.source}
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
         />
         <KpiCard
           icon={ShieldCheck}
           label="SLA compliance"
           value={stats.slaPct !== null ? `${stats.slaPct}%` : "—"}
-          sub={`Completadas en ≤${SLA_MINUTES} min · ${periodLabel(period, customRange)}`}
+          sub={`Completadas en ≤${SLA_MINUTES} min · ${periodLabel(period)}`}
           tone="success"
           neutral
           source={stats.source}
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
         />
         <KpiCard
           icon={ListChecks}
@@ -685,7 +655,7 @@ export function OrdenesPage() {
           tone="info"
           neutral
           source={stats.source}
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
         />
       </div>
 
@@ -695,7 +665,7 @@ export function OrdenesPage() {
           title="Distribución por estado"
           action={
             <div className="flex items-center gap-2">
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
               <SourceBadge source={stats.source} />
             </div>
           }
@@ -779,7 +749,7 @@ export function OrdenesPage() {
           title="Tasa de cumplimiento"
           action={
             <div className="flex items-center gap-2">
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
               <SourceBadge source={stats.source} />
             </div>
           }
@@ -929,7 +899,7 @@ export function OrdenesPage() {
           title={stats.bucketKind === "hour" ? "Órdenes por hora" : "Órdenes por día"}
           action={
             <div className="flex items-center gap-2">
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
               <SourceBadge source={stats.source} />
             </div>
           }
@@ -969,7 +939,7 @@ export function OrdenesPage() {
           title="Histórico de órdenes"
           action={
             <div className="flex items-center gap-2">
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -1266,125 +1236,5 @@ function ClampNotice() {
     <p className="text-[10px] text-muted-foreground mt-2">
       Recortado a 92 días: una consulta de órdenes no puede abarcar más.
     </p>
-  );
-}
-
-function PeriodPicker({
-  value,
-  onChange,
-  range,
-  onRangeChange,
-}: {
-  value: PeriodId;
-  onChange: (v: PeriodId) => void;
-  range?: DateRange;
-  onRangeChange?: (r: DateRange | undefined) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 rounded-md border border-border bg-card hover:bg-secondary/40 px-3 py-1.5 text-xs">
-          <CalendarIcon className="w-3.5 h-3.5" /> {periodLabel(value, range)}{" "}
-          <ChevronDown className="w-3 h-3" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto p-2">
-        <div className="flex">
-          <div className="w-48 p-1 border-r border-border">
-            {PERIOD_OPTIONS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => {
-                  onChange(p.id);
-                  if (p.id !== "custom") setOpen(false);
-                }}
-                className={cn(
-                  "w-full flex items-center justify-between px-2 py-1.5 text-xs rounded hover:bg-secondary/60",
-                  p.id === value && "bg-secondary/60",
-                )}
-              >
-                {p.label}
-                {p.id === value && <Check className="w-3 h-3 text-primary" />}
-              </button>
-            ))}
-          </div>
-          {value === "custom" && (
-            <div className="p-1">
-              <Calendar
-                mode="range"
-                selected={range}
-                onSelect={onRangeChange}
-                numberOfMonths={2}
-                locale={es}
-                className="p-2 pointer-events-auto"
-              />
-              <div className="flex justify-end px-2 pb-1">
-                <button
-                  onClick={() => setOpen(false)}
-                  disabled={!range?.from || !range?.to}
-                  className="text-[11px] text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
-                >
-                  Aplicar ›
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function RangePicker({
-  range,
-  onRangeChange,
-}: {
-  range?: DateRange;
-  onRangeChange: (r: DateRange | undefined) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const label =
-    range?.from && range?.to
-      ? `${format(range.from, "dd/MM/yyyy")} – ${format(range.to, "dd/MM/yyyy")}`
-      : range?.from
-        ? `Desde ${format(range.from, "dd/MM/yyyy")}`
-        : "Todo el período";
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 rounded-md border border-border bg-card hover:bg-secondary/40 px-3 py-1.5 text-[11px]">
-          <CalendarIcon className="w-3.5 h-3.5" /> {label} <ChevronDown className="w-3 h-3" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto p-2">
-        <Calendar
-          mode="range"
-          selected={range}
-          onSelect={onRangeChange}
-          numberOfMonths={2}
-          locale={es}
-          className="p-2 pointer-events-auto"
-        />
-        <div className="flex justify-between px-2 pb-1">
-          <button
-            onClick={() => {
-              onRangeChange(undefined);
-              setOpen(false);
-            }}
-            className="text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            Limpiar
-          </button>
-          <button
-            onClick={() => setOpen(false)}
-            disabled={!range?.from || !range?.to}
-            className="text-[11px] text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
-          >
-            Aplicar ›
-          </button>
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }

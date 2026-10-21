@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
-import { es } from "date-fns/locale";
-import type { DateRange } from "react-day-picker";
 import {
   DollarSign,
   AlertTriangle,
@@ -14,9 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
-  Check,
   RefreshCw,
-  CalendarIcon,
 } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useInventoryMetrics, type EnrichedProduct } from "@/hooks/useInventoryMetrics";
@@ -28,8 +24,8 @@ import type { DataSource } from "@/lib/data-source";
 import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
 import { live, period as periodTemporal, dailyRun, restockWindow } from "@/lib/temporality";
 import type { Temporality } from "@/lib/temporality";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { periodLabel, periodToBounds, type PeriodId } from "@/lib/dateRange";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_dash/inventario-v2")({
@@ -92,20 +88,7 @@ type SortKey =
 
 // ─── Mock movimientos data (no endpoint in RFC) ───────────────────────────────
 
-const PERIOD_OPTIONS = [
-  { id: "24h", label: "Últimas 24 horas" },
-  { id: "7d", label: "Últimos 7 días" },
-  { id: "30d", label: "Últimos 30 días" },
-  { id: "90d", label: "Últimos 90 días" },
-  { id: "custom", label: "Rango personalizado" },
-] as const;
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"];
-type DataPeriodId = Exclude<PeriodId, "custom">;
-
-const MOV_BY_PERIOD: Record<
-  DataPeriodId,
-  Array<{ h: string; entradas: number; salidas: number }>
-> = {
+const MOV_BY_PERIOD: Record<PeriodId, Array<{ h: string; entradas: number; salidas: number }>> = {
   "24h": ["00", "04", "08", "12", "16", "20"].map((h, i) => ({
     h: `${h}:00`,
     entradas: [12, 8, 42, 68, 54, 22][i],
@@ -126,6 +109,13 @@ const MOV_BY_PERIOD: Record<
     entradas: [5240, 5680, 5920][i],
     salidas: [6120, 6380, 6720][i],
   })),
+  "1y": ["Nov", "Dic", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct"].map(
+    (m, i) => ({
+      h: m,
+      entradas: [5100, 5900, 4300, 4700, 5240, 5680, 5920, 5400, 5600, 5800, 6000, 5700][i],
+      salidas: [6000, 7100, 5100, 5500, 6120, 6380, 6720, 6200, 6400, 6600, 6900, 6500][i],
+    }),
+  ),
 };
 
 type MovKind = "entrada" | "salida" | "ajuste";
@@ -186,16 +176,6 @@ function fmtLastOrder(date: string | null, daysAgo: number | null): string {
   return format(new Date(date), "dd/MM/yy");
 }
 
-function periodLabel(value: PeriodId, range?: DateRange): string {
-  if (value === "custom") {
-    if (range?.from && range?.to)
-      return `${format(range.from, "dd/MM/yy")} – ${format(range.to, "dd/MM/yy")}`;
-    if (range?.from) return `Desde ${format(range.from, "dd/MM/yy")}`;
-    return "Rango personalizado";
-  }
-  return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
-}
-
 /** Número de stock con a lo sumo un decimal: el cron devuelve ROP/objetivo con muchos. */
 function fmtStockNum(n: number): string {
   return n.toLocaleString("es-AR", { maximumFractionDigits: 1 });
@@ -227,24 +207,13 @@ function InventarioPage() {
   const [sortKey, setSortKey] = useState<SortKey>("sku");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [period, setPeriod] = useState<PeriodId>("7d");
-  const [customRange, setCustomRange] = useState<DateRange | undefined>();
 
-  // period/customRange drive dailyDemand/coverageDays on the table + "Top
+  // period drives dailyDemand/coverageDays on the table + "Top
   // rotación" (exploratory) and the mock "Movimientos" panel below. They do
   // NOT drive `status` (viene de la recomendación diaria del cron) ni el KPI de
   // dead stock, que usa la ventana fija del cron (deadStockDays) para que un
   // período corto no haga parpadear las alertas. See useInventoryMetrics.
-  const { products, kpis, zoneOccupancy, deadStockDays } = useInventoryMetrics(period, customRange);
-
-  const dataPeriod: DataPeriodId = useMemo(() => {
-    if (period !== "custom") return period;
-    if (!customRange?.from || !customRange?.to) return "30d";
-    const days = Math.ceil((customRange.to.getTime() - customRange.from.getTime()) / 86_400_000);
-    if (days <= 1) return "24h";
-    if (days <= 7) return "7d";
-    if (days <= 30) return "30d";
-    return "90d";
-  }, [period, customRange]);
+  const { products, kpis, zoneOccupancy, deadStockDays } = useInventoryMetrics(period);
 
   // Estado del catálogo — dos hechos independientes (pueden superponerse), por
   // eso son barras sobre el total y no una dona que tendría que sumar 100%.
@@ -358,25 +327,12 @@ function InventarioPage() {
 
   // Movimientos (mock)
   const movimientos = useMemo(() => {
-    const now = Date.now();
-    let from: number | undefined;
-    let to: number | undefined;
-    if (period === "custom") {
-      from = customRange?.from?.getTime();
-      to = customRange?.to ? customRange.to.getTime() + 86_400_000 : undefined;
-    } else {
-      const days = period === "24h" ? 1 : period === "7d" ? 7 : period === "30d" ? 30 : 90;
-      from = now - days * 86_400_000;
-      to = now;
-    }
+    const { from, to } = periodToBounds(period);
+    const now = to;
     return MOVIMIENTOS.map((m) => ({ ...m, t: now - m.offsetH * 3_600_000 }))
-      .filter((m) => {
-        if (from !== undefined && m.t < from) return false;
-        if (to !== undefined && m.t > to) return false;
-        return true;
-      })
+      .filter((m) => m.t >= from && m.t <= to)
       .map((m) => ({ ...m, fecha: format(new Date(m.t), "dd/MM/yyyy HH:mm") }));
-  }, [period, customRange]);
+  }, [period]);
 
   return (
     <div className="space-y-5">
@@ -630,16 +586,11 @@ function InventarioPage() {
             corrida diaria del cron o de su ventana fija, no de esto). */}
         <Panel
           title="Top rotación"
-          subtitle={`Mayor demanda diaria · ${periodLabel(period, customRange)}`}
+          subtitle={`Mayor demanda diaria · ${periodLabel(period)}`}
           action={
             <div className="flex items-center gap-2">
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
-              <PeriodPicker
-                value={period}
-                onChange={setPeriod}
-                range={customRange}
-                onRangeChange={setCustomRange}
-              />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
+              <PeriodPicker value={period} onChange={setPeriod} />
             </div>
           }
         >
@@ -681,7 +632,7 @@ function InventarioPage() {
         subtitle="Entradas vs salidas · datos sintéticos"
         action={
           <div className="flex items-center gap-2">
-            <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+            <TemporalBadge value={periodTemporal(periodLabel(period))} />
             <SourceBadge source="mock" />
           </div>
         }
@@ -689,7 +640,7 @@ function InventarioPage() {
         <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
-              data={MOV_BY_PERIOD[dataPeriod]}
+              data={MOV_BY_PERIOD[period]}
               margin={{ top: 6, right: 8, bottom: 0, left: -16 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.92 0.01 250)" />
@@ -1018,73 +969,5 @@ function TableTabs({
         </button>
       ))}
     </div>
-  );
-}
-
-function PeriodPicker({
-  value,
-  onChange,
-  range,
-  onRangeChange,
-}: {
-  value: PeriodId;
-  onChange: (v: PeriodId) => void;
-  range?: DateRange;
-  onRangeChange?: (r: DateRange | undefined) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 rounded-md border border-border bg-card hover:bg-secondary/40 px-3 py-1.5 text-xs">
-          <CalendarIcon className="w-3.5 h-3.5" />
-          {periodLabel(value, range)}
-          <ChevronDown className="w-3 h-3" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto p-2">
-        <div className="flex">
-          <div className="w-48 p-1 border-r border-border">
-            {PERIOD_OPTIONS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => {
-                  onChange(p.id);
-                  if (p.id !== "custom") setOpen(false);
-                }}
-                className={cn(
-                  "w-full flex items-center justify-between px-2 py-1.5 text-xs rounded hover:bg-secondary/60",
-                  p.id === value && "bg-secondary/60",
-                )}
-              >
-                {p.label}
-                {p.id === value && <Check className="w-3 h-3 text-primary" />}
-              </button>
-            ))}
-          </div>
-          {value === "custom" && (
-            <div className="p-1">
-              <Calendar
-                mode="range"
-                selected={range}
-                onSelect={onRangeChange}
-                numberOfMonths={2}
-                locale={es}
-                className="p-2 pointer-events-auto"
-              />
-              <div className="flex justify-end px-2 pb-1">
-                <button
-                  onClick={() => setOpen(false)}
-                  disabled={!range?.from || !range?.to}
-                  className="text-[11px] text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
-                >
-                  Aplicar ›
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }

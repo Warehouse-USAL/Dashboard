@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { DateRange } from "react-day-picker";
 import { mapOrderPriority } from "@/lib/api";
 import { periodToBounds, type PeriodId } from "@/lib/dateRange";
 import { ordersWindow, queryEntity } from "@/lib/query-api";
@@ -28,8 +27,8 @@ export type HourlyPoint = { bucket: string; label: string; orders: number };
  * pregunta ("cuántas y de qué tipo") mirada de varios ángulos, no hace falta
  * pedirla cuatro veces.
  */
-export function useOrderStats(period: PeriodId, customRange: DateRange | undefined, slaMs: number) {
-  const bounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+export function useOrderStats(period: PeriodId, slaMs: number) {
+  const bounds = useMemo(() => periodToBounds(period), [period]);
   const oWindow = useMemo(() => ordersWindow(bounds), [bounds]);
   // Con 92 días como máximo, buckets por hora darían ~2200 puntos — gráfico
   // ilegible. Sólo tiene sentido en la ventana más chica.

@@ -72,7 +72,8 @@ export function stepGrid(
   anchorSeconds: number | undefined,
 ): number[] {
   if (anchorSeconds === undefined || stepSeconds <= 0) return [];
-  const start = anchorSeconds - Math.floor((anchorSeconds - fromSeconds) / stepSeconds) * stepSeconds;
+  const start =
+    anchorSeconds - Math.floor((anchorSeconds - fromSeconds) / stepSeconds) * stepSeconds;
   const grid: number[] = [];
   for (let t = start; t <= toSeconds; t += stepSeconds) grid.push(t);
   return grid;

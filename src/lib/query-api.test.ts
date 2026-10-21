@@ -21,23 +21,23 @@ describe("ordersWindow", () => {
     ]);
   });
 
-  it("no recorta una ventana que entra en los 92 días", () => {
-    const w = ordersWindow({ from: now - 90 * 86_400_000, to: now });
+  it("no recorta una ventana de un año, el máximo del PeriodPicker", () => {
+    const w = ordersWindow({ from: now - 365 * 86_400_000, to: now });
     expect(w.clamped).toBe(false);
-    expect(w.days).toBe(90);
+    expect(w.days).toBe(365);
   });
 
-  it("recorta a 92 días un rango personalizado más ancho", () => {
-    // El PeriodPicker deja elegir cualquier rango; el backend rechaza más de 92
-    // días con QUERY_TOO_BROAD. Mostrar 92 es mejor que mostrar un error.
-    const w = ordersWindow({ from: now - 200 * 86_400_000, to: now });
+  it("recorta al tope una ventana más ancha", () => {
+    // Red de seguridad: mostrar el tope es mejor que mostrar un error de
+    // QUERY_TOO_BROAD.
+    const w = ordersWindow({ from: now - 500 * 86_400_000, to: now });
     expect(w.clamped).toBe(true);
     expect(w.days).toBe(MAX_ORDERS_WINDOW_DAYS);
   });
 
   it("recorta el extremo viejo, no el reciente", () => {
     // Al revés perderíamos los datos de hoy, que son los que más importan.
-    const w = ordersWindow({ from: now - 200 * 86_400_000, to: now });
+    const w = ordersWindow({ from: now - 500 * 86_400_000, to: now });
     expect(w.to.toISOString()).toBe("2026-09-06T12:00:00.000Z");
   });
 });

@@ -1,18 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
-import type { DateRange } from "react-day-picker";
-import {
-  Activity,
-  Calendar as CalendarIcon,
-  Truck,
-  Zap,
-  Clock,
-  Wrench,
-  ChevronDown,
-  Check,
-} from "lucide-react";
+import { Activity, Truck, Zap, Clock, Wrench } from "lucide-react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -35,34 +23,13 @@ import { useFleetMetrics, type FleetVehicleStats } from "@/hooks/useFleetMetrics
 import { formatDuration, formatInstant } from "@/lib/metrics-api";
 import type { DataSource } from "@/lib/data-source";
 import type { Rover } from "@/lib/dashboard-data";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { cn } from "@/lib/utils";
+import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { periodLabel, type PeriodId } from "@/lib/dateRange";
 
 export const Route = createFileRoute("/_dash/vehiculos-v2")({
   component: RoversPage,
   head: () => ({ meta: [{ title: "Rovers · SmartWarehouse" }] }),
 });
-
-const PERIOD_OPTIONS = [
-  { id: "24h", label: "Últimas 24 horas" },
-  { id: "7d", label: "Últimos 7 días" },
-  { id: "30d", label: "Últimos 30 días" },
-  { id: "90d", label: "Últimos 90 días" },
-  { id: "custom", label: "Rango personalizado" },
-] as const;
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"];
-
-function periodLabel(value: PeriodId, range?: DateRange) {
-  if (value === "custom") {
-    if (range?.from && range?.to) {
-      return `${format(range.from, "dd/MM/yy")} – ${format(range.to, "dd/MM/yy")}`;
-    }
-    if (range?.from) return `Desde ${format(range.from, "dd/MM/yy")}`;
-    return "Rango personalizado";
-  }
-  return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
-}
 
 /** Una por rover en los gráficos multi-serie. Se cicla si hay más rovers. */
 const SERIES_COLORS = [
@@ -116,9 +83,8 @@ function RoversPage() {
   useVehicleWebSocket();
 
   const [period, setPeriod] = useState<PeriodId>("24h");
-  const [customRange, setCustomRange] = useState<DateRange | undefined>();
 
-  const fleet = useFleetMetrics(period, customRange);
+  const fleet = useFleetMetrics(period);
 
   // Color fijo por rover: sale de su posición en la flota completa (ordenada por
   // id), no de la lista de rovers que fallaron en el período. Así un rover
@@ -188,7 +154,7 @@ function RoversPage() {
           : "Tiempo ocupado de la flota en el período, promedio de todos los rovers",
       tone: "warning" as const,
       source: fleet.metricsSource,
-      temporal: periodTemporal(periodLabel(period, customRange)),
+      temporal: periodTemporal(periodLabel(period)),
     },
     {
       icon: Clock,
@@ -200,7 +166,7 @@ function RoversPage() {
           : "Tiempo del período / fallas · promedio de rovers que fallaron",
       tone: "info" as const,
       source: fleet.metricsSource,
-      temporal: periodTemporal(periodLabel(period, customRange)),
+      temporal: periodTemporal(periodLabel(period)),
     },
     {
       icon: Wrench,
@@ -212,7 +178,7 @@ function RoversPage() {
           : "Tiempo offline / fallas · promedio de rovers que fallaron",
       tone: "warning" as const,
       source: fleet.metricsSource,
-      temporal: periodTemporal(periodLabel(period, customRange)),
+      temporal: periodTemporal(periodLabel(period)),
     },
   ];
 
@@ -220,12 +186,7 @@ function RoversPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 flex items-end justify-end gap-2 flex-wrap text-xs">
-        <PeriodPicker
-          value={period}
-          onChange={setPeriod}
-          range={customRange}
-          onRangeChange={setCustomRange}
-        />
+        <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
       {/* KPIs */}
@@ -294,7 +255,6 @@ function RoversPage() {
         stats={fleet.perVehicle}
         source={fleet.ordersSource}
         period={period}
-        range={customRange}
       />
 
       {/* Histórico + Pareto + Actividad */}
@@ -312,7 +272,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.metricsSource} />
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
             </div>
           }
         >
@@ -379,7 +339,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.metricsSource} />
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
             </div>
           }
         >
@@ -421,7 +381,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.source} />
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
             </div>
           }
         >
@@ -633,85 +593,16 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
-function PeriodPicker({
-  value,
-  onChange,
-  range,
-  onRangeChange,
-}: {
-  value: PeriodId;
-  onChange: (v: PeriodId) => void;
-  range?: DateRange;
-  onRangeChange?: (r: DateRange | undefined) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 rounded-md border border-border bg-card hover:bg-secondary/40 px-3 py-1.5 text-xs">
-          <CalendarIcon className="w-3.5 h-3.5" /> {periodLabel(value, range)}{" "}
-          <ChevronDown className="w-3 h-3" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto p-2">
-        <div className="flex">
-          <div className="w-48 p-1 border-r border-border">
-            {PERIOD_OPTIONS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => {
-                  onChange(p.id);
-                  if (p.id !== "custom") setOpen(false);
-                }}
-                className={cn(
-                  "w-full flex items-center justify-between px-2 py-1.5 text-xs rounded hover:bg-secondary/60",
-                  p.id === value && "bg-secondary/60",
-                )}
-              >
-                {p.label}
-                {p.id === value && <Check className="w-3 h-3 text-primary" />}
-              </button>
-            ))}
-          </div>
-          {value === "custom" && (
-            <div className="p-1">
-              <Calendar
-                mode="range"
-                selected={range}
-                onSelect={onRangeChange}
-                numberOfMonths={2}
-                locale={es}
-                className="p-2 pointer-events-auto"
-              />
-              <div className="flex justify-end px-2 pb-1">
-                <button
-                  onClick={() => setOpen(false)}
-                  disabled={!range?.from || !range?.to}
-                  className="text-[11px] text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
-                >
-                  Aplicar ›
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function ProductividadPorRover({
   rovers,
   stats,
   source,
   period,
-  range,
 }: {
   rovers: Rover[];
   stats: FleetVehicleStats[];
   source: DataSource;
   period: PeriodId;
-  range?: DateRange;
 }) {
   // Antes esto traía TODAS las órdenes completadas (con el tope de 50 filas de
   // getOrders) y las contaba en JS. Ahora el conteo lo hace Mongo sobre la
@@ -750,7 +641,7 @@ function ProductividadPorRover({
       title="Productividad por rover"
       action={
         <div className="flex items-center gap-2">
-          <TemporalBadge value={periodTemporal(periodLabel(period, range))} />
+          <TemporalBadge value={periodTemporal(periodLabel(period))} />
           <SourceBadge source={source} />
         </div>
       }
