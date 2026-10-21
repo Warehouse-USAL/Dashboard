@@ -34,6 +34,7 @@ import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { periodLabel, periodToBounds, type PeriodId } from "@/lib/dateRange";
 import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { ordersChartTitle } from "@/lib/granularity";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_dash/ordenes-v2")({
@@ -896,7 +897,7 @@ export function OrdenesPage() {
 
         <Panel
           className="self-start"
-          title={stats.bucketKind === "hour" ? "Órdenes por hora" : "Órdenes por día"}
+          title={ordersChartTitle(stats.bucketKind)}
           action={
             <div className="flex items-center gap-2">
               <TemporalBadge value={periodTemporal(periodLabel(period))} />

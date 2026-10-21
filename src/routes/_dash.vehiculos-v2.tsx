@@ -25,6 +25,7 @@ import type { DataSource } from "@/lib/data-source";
 import type { Rover } from "@/lib/dashboard-data";
 import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
 import { periodLabel, type PeriodId } from "@/lib/dateRange";
+import { formatMonthStart } from "@/lib/granularity";
 
 export const Route = createFileRoute("/_dash/vehiculos-v2")({
   component: RoversPage,
@@ -99,8 +100,9 @@ function RoversPage() {
   // El eje de tiempo se formatea según el paso de la serie: con puntos diarios,
   // repetir la hora en cada tick no informa nada y satura el eje.
   const tickFormatter = useMemo(
-    () => (t: number) => formatInstant(t, fleet.stepSeconds),
-    [fleet.stepSeconds],
+    () => (t: number) =>
+      fleet.granularity === "month" ? formatMonthStart(t) : formatInstant(t, fleet.stepSeconds),
+    [fleet.stepSeconds, fleet.granularity],
   );
 
   const {
