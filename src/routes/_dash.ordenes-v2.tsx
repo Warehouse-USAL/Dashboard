@@ -529,7 +529,7 @@ export function OrdenesPage() {
 
   // dataKeys que ya esperaba el gráfico de líneas ("h"/"ordenes"); el hook
   // devuelve nombres más genéricos porque no es específico de este gráfico.
-  const horas = stats.hourly.map((p) => ({ h: p.label, ordenes: p.orders }));
+  const horas = stats.hourly.map((p) => ({ h: p.label, ordenes: p.orders, range: p.range }));
 
   // Cola de trabajo pendiente — en vivo, no acotada por período (mismo criterio
   // que distribucion/aging arriba: es "qué falta hacer ahora", no "qué se creó
@@ -948,6 +948,8 @@ export function OrdenesPage() {
                       stroke="var(--muted-foreground)"
                     />
                     <Tooltip
+                      // En semana y mes muestra el rango completo ("Semana del 06/10 al 12/10").
+                      labelFormatter={(label, payload) => payload?.[0]?.payload?.range ?? label}
                       contentStyle={{
                         fontSize: expanded ? 13 : 11,
                         background: "var(--card)",

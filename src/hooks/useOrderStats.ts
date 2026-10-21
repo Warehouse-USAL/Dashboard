@@ -4,13 +4,14 @@ import { mapOrderPriority } from "@/lib/api";
 import { periodToBounds, type PeriodId } from "@/lib/dateRange";
 import { ordersWindow, queryEntity } from "@/lib/query-api";
 import { worstSource, type DataSource } from "@/lib/data-source";
-import { bucketKeys, fillBuckets, type BucketKind } from "@/lib/series-fill";
-import { formatMonthStart, granularityFor } from "@/lib/granularity";
+import { backendBucketToEpoch, bucketKeys, fillBuckets, type BucketKind } from "@/lib/series-fill";
+import { bucketRangeLabel, formatMonthStart, granularityFor } from "@/lib/granularity";
 
 export type OrderState = "pending" | "in_progress" | "completed" | "cancelled";
 export type Priority = "urgente" | "alta" | "media" | "baja";
 
-export type HourlyPoint = { bucket: string; label: string; orders: number };
+/** `range` es el rango completo de la semana o el mes, para el tooltip; sólo existe en esas agrupaciones. */
+export type HourlyPoint = { bucket: string; label: string; range?: string; orders: number };
 
 /**
  * KPIs, distribución y el gráfico "por hora" de la página de Órdenes, todos
@@ -147,6 +148,15 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
     ).map((r) => ({
       bucket: r.bucket,
       label: formatBucketLabel(r.bucket, kind),
+      range:
+        kind === "week" || kind === "month"
+          ? bucketRangeLabel(
+              backendBucketToEpoch(r.bucket),
+              kind,
+              oWindow.from.getTime() / 1000,
+              oWindow.to.getTime() / 1000,
+            )
+          : undefined,
       orders: r.orders,
     }));
 
@@ -205,6 +215,7 @@ export function formatBucketLabel(bucket: string, kind: BucketKind): string {
   const [year, month, day] = bucket.split("-");
   // Semana: el día es el lunes en que empieza. Mes: "oct 26".
   if (kind === "month") return formatMonthStart(Date.UTC(+year, +month - 1, 1) / 1000 + 3 * 3_600);
+  if (kind === "week") return `Sem ${day}/${month}`;
   return `${day}/${month}`;
 }
 

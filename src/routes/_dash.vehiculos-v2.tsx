@@ -28,7 +28,7 @@ import type { DataSource } from "@/lib/data-source";
 import type { Rover } from "@/lib/dashboard-data";
 import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
 import { periodLabel, type PeriodId } from "@/lib/dateRange";
-import { formatMonthStart } from "@/lib/granularity";
+import { bucketRangeLabel, formatMonthStart } from "@/lib/granularity";
 
 export const Route = createFileRoute("/_dash/vehiculos-v2")({
   component: RoversPage,
@@ -88,9 +88,22 @@ function RoversPage() {
   // El eje de tiempo se formatea según el paso de la serie: con puntos diarios,
   // repetir la hora en cada tick no informa nada y satura el eje.
   const tickFormatter = useMemo(
-    () => (t: number) =>
-      fleet.granularity === "month" ? formatMonthStart(t) : formatInstant(t, fleet.stepSeconds),
+    () => (t: number) => {
+      if (fleet.granularity === "month") return formatMonthStart(t);
+      if (fleet.granularity === "week") return `Sem ${formatInstant(t, fleet.stepSeconds)}`;
+      return formatInstant(t, fleet.stepSeconds);
+    },
     [fleet.stepSeconds, fleet.granularity],
+  );
+
+  // Tooltip: en semana y mes muestra el rango completo ("Semana del 06/10 al
+  // 12/10"), recortado al período elegido; en hora y día, la misma etiqueta del eje.
+  const tooltipFormatter = useMemo(
+    () => (t: number) =>
+      fleet.granularity === "week" || fleet.granularity === "month"
+        ? bucketRangeLabel(t, fleet.granularity, fleet.windowFromSeconds, fleet.windowToSeconds)
+        : tickFormatter(t),
+    [fleet.granularity, fleet.windowFromSeconds, fleet.windowToSeconds, tickFormatter],
   );
 
   const {
@@ -291,7 +304,7 @@ function RoversPage() {
                         stroke="var(--muted-foreground)"
                       />
                       <Tooltip
-                        labelFormatter={tickFormatter}
+                        labelFormatter={tooltipFormatter}
                         contentStyle={{
                           fontSize: expanded ? 13 : 11,
                           background: "var(--card)",
@@ -422,7 +435,7 @@ function RoversPage() {
                         stroke="var(--muted-foreground)"
                       />
                       <Tooltip
-                        labelFormatter={tickFormatter}
+                        labelFormatter={tooltipFormatter}
                         contentStyle={{
                           fontSize: expanded ? 13 : 11,
                           background: "var(--card)",
