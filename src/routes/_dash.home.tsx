@@ -49,6 +49,7 @@ import { TablePagination } from "@/components/dashboard/TablePagination";
 import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
 import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
+import { SHOW_ALERTS_AND_SETTINGS } from "@/lib/feature-flags";
 import { live, period as periodTemporal } from "@/lib/temporality";
 import type { Temporality } from "@/lib/temporality";
 import type { DataSource } from "@/lib/data-source";
@@ -280,12 +281,14 @@ function HomePage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source="mock" />
-              <Link
-                to="/alertas"
-                className="text-xs text-primary hover:underline flex items-center gap-1"
-              >
-                Todas <ChevronRight className="w-3 h-3" />
-              </Link>
+              {SHOW_ALERTS_AND_SETTINGS && (
+                <Link
+                  to="/alertas"
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  Todas <ChevronRight className="w-3 h-3" />
+                </Link>
+              )}
             </div>
           }
         >
