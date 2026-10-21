@@ -56,7 +56,7 @@ export function bucketKey(start: number, kind: BucketKind): string {
 }
 
 /** Epoch en segundos de un bucket del backend ("2026-08-01" o "2026-08-01T19:00:00"), hora de Buenos Aires. */
-function backendBucketToEpoch(bucket: string): number {
+export function backendBucketToEpoch(bucket: string): number {
   const [date, time = "00:00:00"] = bucket.split("T");
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm, ss] = time.slice(0, 8).split(":").map(Number);

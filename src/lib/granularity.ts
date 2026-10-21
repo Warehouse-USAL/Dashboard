@@ -1,5 +1,5 @@
 import type { PeriodId } from "./dateRange";
-import type { BucketKind } from "./series-fill";
+import { nextBucket, type BucketKind } from "./series-fill";
 
 /**
  * Agrupación de los gráficos de series de tiempo según el período elegido.
@@ -41,6 +41,58 @@ export function ordersChartTitle(kind: BucketKind): string {
 }
 
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+const MONTHS_LONG = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
+
+/** "21/10" para un instante, en hora de Buenos Aires (UTC-3). */
+function dayMonth(epochSeconds: number): string {
+  const d = new Date((epochSeconds - 3 * 3_600) * 1000);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}`;
+}
+
+/**
+ * Rango completo de una semana o un mes, para el tooltip: "Semana del 06/10 al
+ * 12/10", "octubre 2026".
+ *
+ * Se recorta al período elegido, así la primera y la última semana (o mes) se
+ * ven con los días que realmente tienen: si hoy es 21/10, la última semana dice
+ * "del 20/10 al 21/10", y se entiende por qué ese punto es más bajo.
+ */
+export function bucketRangeLabel(
+  start: number,
+  kind: BucketKind,
+  windowFromSeconds: number,
+  windowToSeconds: number,
+): string {
+  const end = nextBucket(start, kind) - 1;
+  const from = Math.max(start, windowFromSeconds);
+  const to = Math.min(end, windowToSeconds);
+  const range =
+    dayMonth(from) === dayMonth(to) ? dayMonth(from) : `${dayMonth(from)} al ${dayMonth(to)}`;
+  if (kind === "week") return `Semana del ${range}`;
+  if (kind === "month") {
+    const d = new Date((start - 3 * 3_600) * 1000);
+    const name = `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    const partial = from > start || to < end;
+    return partial ? `${name} (del ${range})` : name;
+  }
+  return dayMonth(from);
+}
 
 /** "oct 26" para el bucket mensual que empieza en `epochSeconds`. */
 export function formatMonthStart(epochSeconds: number): string {

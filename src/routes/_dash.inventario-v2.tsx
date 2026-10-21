@@ -18,6 +18,9 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { useInventoryMetrics, type EnrichedProduct } from "@/hooks/useInventoryMetrics";
 import type { FrontendRestock } from "@/lib/api";
 import { usePagedList } from "@/hooks/usePagination";
+import type { ComponentProps } from "react";
+import { Panel as SharedPanel } from "@/components/dashboard/Panel";
+import { ChartBox } from "@/components/dashboard/ChartBox";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import type { DataSource } from "@/lib/data-source";
@@ -522,34 +525,41 @@ function InventarioPage() {
         <Panel
           title="Estado del catálogo"
           subtitle={`${statusTotal} SKUs · un producto puede estar en los dos`}
+          expandable
         >
-          <div className="space-y-3">
-            {statusBars.map((b) => {
-              const pct = statusTotal ? Math.round((b.value / statusTotal) * 100) : 0;
-              return (
-                <div key={b.key} className="space-y-1">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="w-2 h-2 rounded-sm shrink-0"
-                        style={{ background: STATUS_COLOR[b.key] }}
-                      />
-                      {b.name}
-                    </span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {b.value} de {statusTotal} <span className="opacity-60">({pct}%)</span>
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-secondary/60 overflow-hidden">
+          {(expanded) => (
+            <div className={expanded ? "space-y-6" : "space-y-3"}>
+              {statusBars.map((b) => {
+                const pct = statusTotal ? Math.round((b.value / statusTotal) * 100) : 0;
+                return (
+                  <div key={b.key} className="space-y-1">
                     <div
-                      className="h-full"
-                      style={{ width: `${pct}%`, background: STATUS_COLOR[b.key] }}
-                    />
+                      className={`flex items-center justify-between ${expanded ? "text-sm" : "text-[11px]"}`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="w-2 h-2 rounded-sm shrink-0"
+                          style={{ background: STATUS_COLOR[b.key] }}
+                        />
+                        {b.name}
+                      </span>
+                      <span className="text-muted-foreground tabular-nums">
+                        {b.value} de {statusTotal} <span className="opacity-60">({pct}%)</span>
+                      </span>
+                    </div>
+                    <div
+                      className={`rounded-full bg-secondary/60 overflow-hidden ${expanded ? "h-3" : "h-1.5"}`}
+                    >
+                      <div
+                        className="h-full"
+                        style={{ width: `${pct}%`, background: STATUS_COLOR[b.key] }}
+                      />
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </Panel>
 
         {/* Zone occupancy */}
@@ -557,27 +567,34 @@ function InventarioPage() {
           title="Ocupación por zona"
           subtitle="Stock disponible / capacidad"
           action={<TemporalBadge value={live()} />}
+          expandable
         >
-          <div className="space-y-2.5">
-            {occupancy.map((o) => (
-              <div key={o.zone} className="space-y-1">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-medium">Zona {o.zone}</span>
-                  <span className="text-muted-foreground tabular-nums">
-                    {o.used}/{o.cap} <span className="opacity-60">({o.pct}%)</span>
-                  </span>
+          {(expanded) => (
+            <div className={expanded ? "space-y-5" : "space-y-2.5"}>
+              {occupancy.map((o) => (
+                <div key={o.zone} className="space-y-1">
+                  <div
+                    className={`flex items-center justify-between ${expanded ? "text-sm" : "text-[11px]"}`}
+                  >
+                    <span className="font-medium">Zona {o.zone}</span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {o.used}/{o.cap} <span className="opacity-60">({o.pct}%)</span>
+                    </span>
+                  </div>
+                  <div
+                    className={`rounded-full bg-secondary/60 overflow-hidden ${expanded ? "h-3" : "h-1.5"}`}
+                  >
+                    <div className={`h-full ${o.tone}`} style={{ width: `${o.pct}%` }} />
+                  </div>
                 </div>
-                <div className="h-1.5 rounded-full bg-secondary/60 overflow-hidden">
-                  <div className={`h-full ${o.tone}`} style={{ width: `${o.pct}%` }} />
-                </div>
-              </div>
-            ))}
-            {occupancy.length === 0 && (
-              <p className="text-[11px] text-muted-foreground text-center py-6">
-                Sin zonas seleccionadas
-              </p>
-            )}
-          </div>
+              ))}
+              {occupancy.length === 0 && (
+                <p className="text-[11px] text-muted-foreground text-center py-6">
+                  Sin zonas seleccionadas
+                </p>
+              )}
+            </div>
+          )}
         </Panel>
 
         {/* Top rotación — único panel de la página que usa el período elegido,
@@ -593,36 +610,46 @@ function InventarioPage() {
               <PeriodPicker value={period} onChange={setPeriod} />
             </div>
           }
+          expandable
         >
-          <div className="space-y-2">
-            {topRotacion.map((p, i) => {
-              const max = topRotacion[0]?.dailyDemand || 1;
-              const pct = max > 0 ? Math.round((p.dailyDemand / max) * 100) : 0;
-              return (
-                <div key={p.sku} className="space-y-0.5">
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-muted-foreground w-3 tabular-nums shrink-0">
-                        {i + 1}
+          {(expanded) => (
+            <div className={expanded ? "space-y-4" : "space-y-2"}>
+              {topRotacion.map((p, i) => {
+                const max = topRotacion[0]?.dailyDemand || 1;
+                const pct = max > 0 ? Math.round((p.dailyDemand / max) * 100) : 0;
+                return (
+                  <div key={p.sku} className="space-y-0.5">
+                    <div
+                      className={`flex items-center justify-between gap-2 ${expanded ? "text-sm" : "text-[11px]"}`}
+                    >
+                      <span className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className="text-muted-foreground w-5 tabular-nums shrink-0">
+                          {i + 1}
+                        </span>
+                        <span
+                          className={expanded ? "font-semibold" : "font-semibold truncate"}
+                          title={p.name}
+                        >
+                          {p.name}
+                        </span>
                       </span>
-                      <span className="font-semibold truncate" title={p.name}>
-                        {p.name}
+                      <span className="text-muted-foreground tabular-nums shrink-0">
+                        {fmtDemand(p.dailyDemand)} u/d
                       </span>
-                    </span>
-                    <span className="text-muted-foreground tabular-nums shrink-0">
-                      {fmtDemand(p.dailyDemand)} u/d
-                    </span>
+                    </div>
+                    <div
+                      className={`rounded-full bg-secondary/60 overflow-hidden ${expanded ? "h-2.5" : "h-1"}`}
+                    >
+                      <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+                    </div>
                   </div>
-                  <div className="h-1 rounded-full bg-secondary/60 overflow-hidden">
-                    <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-            {topRotacion.length === 0 && (
-              <p className="text-[11px] text-muted-foreground text-center py-6">Sin datos</p>
-            )}
-          </div>
+                );
+              })}
+              {topRotacion.length === 0 && (
+                <p className="text-[11px] text-muted-foreground text-center py-6">Sin datos</p>
+              )}
+            </div>
+          )}
         </Panel>
       </div>
 
@@ -636,32 +663,43 @@ function InventarioPage() {
             <SourceBadge source="mock" />
           </div>
         }
+        expandable
       >
-        <div className="h-[200px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={MOV_BY_PERIOD[period]}
-              margin={{ top: 6, right: 8, bottom: 0, left: -16 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.92 0.01 250)" />
-              <XAxis dataKey="h" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
-              <Bar dataKey="entradas" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="salidas" fill="oklch(0.72 0.18 50)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex items-center gap-4 text-[11px] mt-2">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-sm" style={{ background: "oklch(0.78 0.18 180)" }} />
-            Entradas
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-sm" style={{ background: "oklch(0.72 0.18 50)" }} />
-            Salidas
-          </span>
-        </div>
+        {(expanded) => (
+          <>
+            <ChartBox height={200}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={MOV_BY_PERIOD[period]}
+                  margin={{ top: 6, right: 8, bottom: 0, left: expanded ? 0 : -16 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.92 0.01 250)" />
+                  <XAxis dataKey="h" tick={{ fontSize: expanded ? 13 : 10 }} />
+                  <YAxis tick={{ fontSize: expanded ? 13 : 10 }} />
+                  <Tooltip contentStyle={{ fontSize: expanded ? 13 : 11, borderRadius: 6 }} />
+                  <Bar dataKey="entradas" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="salidas" fill="oklch(0.72 0.18 50)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartBox>
+            <div className={`flex items-center gap-4 mt-2 ${expanded ? "text-xs" : "text-[11px]"}`}>
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="w-2 h-2 rounded-sm"
+                  style={{ background: "oklch(0.78 0.18 180)" }}
+                />
+                Entradas
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="w-2 h-2 rounded-sm"
+                  style={{ background: "oklch(0.72 0.18 50)" }}
+                />
+                Salidas
+              </span>
+            </div>
+          </>
+        )}
       </Panel>
 
       {/* ── Movimientos recientes (mock) ── */}
@@ -800,31 +838,8 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Panel({
-  title,
-  subtitle,
-  action,
-  className = "",
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  action?: React.ReactNode;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`rounded-xl border border-border bg-card p-5 ${className}`}>
-      <div className="flex items-start justify-between mb-3 gap-2 flex-wrap">
-        <div>
-          <h2 className="text-sm font-bold tracking-tight">{title}</h2>
-          {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>}
-        </div>
-        {action && <div className="flex items-center">{action}</div>}
-      </div>
-      {children}
-    </div>
-  );
+function Panel(props: ComponentProps<typeof SharedPanel>) {
+  return <SharedPanel dense {...props} />;
 }
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {

@@ -436,6 +436,9 @@ export function useFleetMetrics(period: PeriodId) {
       stepSeconds: displaySeconds,
       /** Agrupación de los gráficos: hora, día, semana o mes. */
       granularity: kind,
+      /** Inicio y fin del período (epoch en segundos), para recortar el rango de la primera y la última semana. */
+      windowFromSeconds: fromSeconds,
+      windowToSeconds: toSeconds,
       windowSeconds: mWindow.seconds,
       metricsSource,
       ordersSource,
