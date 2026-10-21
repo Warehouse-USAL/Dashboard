@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { DateRange } from "react-day-picker";
 import { getAllPositions, getProducts } from "@/lib/api";
 import { stock as mockStock } from "@/lib/dashboard-data";
 import type { FrontendProduct, FrontendRestock } from "@/lib/api";
@@ -124,8 +123,8 @@ function dailyRate(totalQty: number, windowDays: number): number {
  *   usa la ventana fija del cron (RESTOCK_LONG_DAYS): una alerta que cambia
  *   porque alguien eligió "últimas 24h" para explorar la tabla sería ruido.
  */
-export function useInventoryMetrics(period: PeriodId = "30d", customRange?: DateRange) {
-  const bounds = useMemo(() => periodToBounds(period, customRange), [period, customRange]);
+export function useInventoryMetrics(period: PeriodId = "30d") {
+  const bounds = useMemo(() => periodToBounds(period), [period]);
 
   const { data: products = MOCK_PRODUCTS_INIT } = useQuery({
     queryKey: ["products"],

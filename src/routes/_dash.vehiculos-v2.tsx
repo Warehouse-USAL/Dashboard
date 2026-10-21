@@ -1,19 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
-import type { DateRange } from "react-day-picker";
-import {
-  Activity,
-  Calendar as CalendarIcon,
-  Filter,
-  Truck,
-  Zap,
-  Clock,
-  Wrench,
-  ChevronDown,
-  Check,
-} from "lucide-react";
+import { Activity, Truck, Zap, Clock, Wrench } from "lucide-react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -35,42 +22,15 @@ import type { Temporality } from "@/lib/temporality";
 import { useFleetMetrics, type FleetVehicleStats } from "@/hooks/useFleetMetrics";
 import { formatDuration, formatInstant } from "@/lib/metrics-api";
 import type { DataSource } from "@/lib/data-source";
-import type { Rover, RoverState } from "@/lib/dashboard-data";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { cn } from "@/lib/utils";
+import type { Rover } from "@/lib/dashboard-data";
+import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { periodLabel, type PeriodId } from "@/lib/dateRange";
+import { formatMonthStart } from "@/lib/granularity";
 
 export const Route = createFileRoute("/_dash/vehiculos-v2")({
   component: RoversPage,
   head: () => ({ meta: [{ title: "Rovers · SmartWarehouse" }] }),
 });
-
-const PERIOD_OPTIONS = [
-  { id: "24h", label: "Últimas 24 horas" },
-  { id: "7d", label: "Últimos 7 días" },
-  { id: "30d", label: "Últimos 30 días" },
-  { id: "90d", label: "Últimos 90 días" },
-  { id: "custom", label: "Rango personalizado" },
-] as const;
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"];
-
-function periodLabel(value: PeriodId, range?: DateRange) {
-  if (value === "custom") {
-    if (range?.from && range?.to) {
-      return `${format(range.from, "dd/MM/yy")} – ${format(range.to, "dd/MM/yy")}`;
-    }
-    if (range?.from) return `Desde ${format(range.from, "dd/MM/yy")}`;
-    return "Rango personalizado";
-  }
-  return PERIOD_OPTIONS.find((p) => p.id === value)!.label;
-}
-
-const STATE_FILTERS: { id: RoverState; label: string }[] = [
-  { id: "busy", label: "Busy" },
-  { id: "idle", label: "Idle" },
-  { id: "error", label: "Error" },
-  { id: "offline", label: "Offline" },
-];
 
 /** Una por rover en los gráficos multi-serie. Se cicla si hay más rovers. */
 const SERIES_COLORS = [
@@ -81,21 +41,6 @@ const SERIES_COLORS = [
   "oklch(0.75 0.15 140)",
   "oklch(0.65 0.05 250)",
 ];
-
-/**
- * Aviso de que los gráficos de flota muestran menos días de los que pediste.
- *
- * Una sola consulta de métricas no puede abarcar más de 31 días (el histórico sí
- * existe: la retención es de ~400). Sin este cartel, elegir "90 días" y ver 30 se
- * lee como que no hay datos más viejos, que es falso.
- */
-function ClampNotice({ shown }: { shown: number }) {
-  return (
-    <p className="text-[10px] text-muted-foreground mt-3">
-      Mostrando los últimos {shown} días: una consulta de métricas no puede abarcar más de 31.
-    </p>
-  );
-}
 
 /**
  * Qué mostrar cuando un panel no tiene nada que graficar.
@@ -124,23 +69,25 @@ function RoversPage() {
   useVehicleWebSocket();
 
   const [period, setPeriod] = useState<PeriodId>("24h");
-  const [customRange, setCustomRange] = useState<DateRange | undefined>();
-  const [stateFilter, setStateFilter] = useState<Set<RoverState>>(
-    new Set(STATE_FILTERS.map((s) => s.id)),
-  );
 
-  const fleet = useFleetMetrics(period, customRange);
+  const fleet = useFleetMetrics(period);
+
+  // Color fijo por rover: sale de su posición en la flota completa (ordenada por
+  // id), no de la lista de rovers que fallaron en el período. Así un rover
+  // conserva su color aunque cambie el filtro o fallen otros.
+  const roverIds = useMemo(
+    () => [...new Set([...rovers.map((r) => r.id), ...fleet.vehicleIds])].sort(),
+    [rovers, fleet.vehicleIds],
+  );
+  const roverColor = (id: string) => SERIES_COLORS[roverIds.indexOf(id) % SERIES_COLORS.length];
+  const roversWithoutFailures = roverIds.filter((id) => !fleet.vehicleIds.includes(id));
 
   // El eje de tiempo se formatea según el paso de la serie: con puntos diarios,
   // repetir la hora en cada tick no informa nada y satura el eje.
   const tickFormatter = useMemo(
-    () => (t: number) => formatInstant(t, fleet.stepSeconds),
-    [fleet.stepSeconds],
-  );
-
-  const filteredRovers = useMemo(
-    () => rovers.filter((r) => stateFilter.has(r.state)),
-    [rovers, stateFilter],
+    () => (t: number) =>
+      fleet.granularity === "month" ? formatMonthStart(t) : formatInstant(t, fleet.stepSeconds),
+    [fleet.stepSeconds, fleet.granularity],
   );
 
   const {
@@ -150,8 +97,8 @@ function RoversPage() {
     pageItems: pagedRovers,
     from: roversFrom,
     to: roversTo,
-    total: roversFilteredTotal,
-  } = usePagedList(filteredRovers, 10);
+    total: roversTotal,
+  } = usePagedList(rovers, 10);
 
   const totalRovers = rovers.length;
   const ocupados = rovers.filter((r) => r.state === "busy").length;
@@ -194,7 +141,7 @@ function RoversPage() {
           : "Tiempo ocupado de la flota en el período, promedio de todos los rovers",
       tone: "warning" as const,
       source: fleet.metricsSource,
-      temporal: periodTemporal(periodLabel(period, customRange)),
+      temporal: periodTemporal(periodLabel(period)),
     },
     {
       icon: Clock,
@@ -206,7 +153,7 @@ function RoversPage() {
           : "Tiempo del período / fallas · promedio de rovers que fallaron",
       tone: "info" as const,
       source: fleet.metricsSource,
-      temporal: periodTemporal(periodLabel(period, customRange)),
+      temporal: periodTemporal(periodLabel(period)),
     },
     {
       icon: Wrench,
@@ -218,7 +165,7 @@ function RoversPage() {
           : "Tiempo offline / fallas · promedio de rovers que fallaron",
       tone: "warning" as const,
       source: fleet.metricsSource,
-      temporal: periodTemporal(periodLabel(period, customRange)),
+      temporal: periodTemporal(periodLabel(period)),
     },
   ];
 
@@ -226,13 +173,7 @@ function RoversPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 flex items-end justify-end gap-2 flex-wrap text-xs">
-        <PeriodPicker
-          value={period}
-          onChange={setPeriod}
-          range={customRange}
-          onRangeChange={setCustomRange}
-        />
-        <FilterMenu selected={stateFilter} onChange={setStateFilter} />
+        <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
       {/* KPIs */}
@@ -248,9 +189,7 @@ function RoversPage() {
         action={
           <div className="flex items-center gap-2">
             <TemporalBadge value={live()} />
-            <span className="text-[11px] text-muted-foreground">
-              {filteredRovers.length} de {totalRovers}
-            </span>
+            <span className="text-[11px] text-muted-foreground">{totalRovers} rovers</span>
           </div>
         }
       >
@@ -270,10 +209,10 @@ function RoversPage() {
               {pagedRovers.map((r) => (
                 <RoverRow key={r.id} r={r} />
               ))}
-              {filteredRovers.length === 0 && (
+              {rovers.length === 0 && (
                 <tr>
                   <td colSpan={6} className="py-6 text-center text-xs text-muted-foreground">
-                    Sin rovers para los filtros seleccionados
+                    Sin rovers registrados
                   </td>
                 </tr>
               )}
@@ -286,7 +225,7 @@ function RoversPage() {
           onPageChange={setRoversPage}
           from={roversFrom}
           to={roversTo}
-          total={roversFilteredTotal}
+          total={roversTotal}
           itemLabel="rovers"
         />
         <div className="flex flex-wrap gap-4 mt-4 text-[11px] text-muted-foreground">
@@ -303,7 +242,6 @@ function RoversPage() {
         stats={fleet.perVehicle}
         source={fleet.ordersSource}
         period={period}
-        range={customRange}
       />
 
       {/* Histórico + Pareto + Actividad */}
@@ -321,7 +259,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.metricsSource} />
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
             </div>
           }
         >
@@ -352,12 +290,12 @@ function RoversPage() {
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: 10 }} />
-                  {fleet.vehicleIds.map((id, i) => (
+                  {fleet.vehicleIds.map((id) => (
                     <Line
                       key={id}
                       type="monotone"
                       dataKey={id}
-                      stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                      stroke={roverColor(id)}
                       strokeWidth={2}
                       dot={false}
                       name={id}
@@ -367,7 +305,19 @@ function RoversPage() {
               </ResponsiveContainer>
             </div>
           )}
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
+          {/* Los rovers sin fallas no tienen serie, así que no aparecen en la
+              leyenda del gráfico: se nombran acá, con el color que tendrían. */}
+          {fleet.failureHistory.length > 0 && roversWithoutFailures.length > 0 && (
+            <p className="text-[10px] text-muted-foreground mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>Sin fallas en el período:</span>
+              {roversWithoutFailures.map((id) => (
+                <span key={id} className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm" style={{ background: roverColor(id) }} />
+                  {id}
+                </span>
+              ))}
+            </p>
+          )}
         </Panel>
 
         <Panel
@@ -375,7 +325,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.metricsSource} />
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
             </div>
           }
         >
@@ -409,7 +359,6 @@ function RoversPage() {
               «UNCATEGORIZED» son caídas sin código de error reportado, no una categoría de falla.
             </p>
           )}
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
 
         <Panel
@@ -417,7 +366,7 @@ function RoversPage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source={fleet.source} />
-              <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
             </div>
           }
         >
@@ -485,7 +434,6 @@ function RoversPage() {
             «Rovers ocupados» es el promedio de rovers ocupados en cada intervalo, por eso puede
             tener decimales.
           </p>
-          {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
       </div>
 
@@ -629,153 +577,16 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
-function PeriodPicker({
-  value,
-  onChange,
-  range,
-  onRangeChange,
-}: {
-  value: PeriodId;
-  onChange: (v: PeriodId) => void;
-  range?: DateRange;
-  onRangeChange?: (r: DateRange | undefined) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 rounded-md border border-border bg-card hover:bg-secondary/40 px-3 py-1.5 text-xs">
-          <CalendarIcon className="w-3.5 h-3.5" /> {periodLabel(value, range)}{" "}
-          <ChevronDown className="w-3 h-3" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto p-2">
-        <div className="flex">
-          <div className="w-48 p-1 border-r border-border">
-            {PERIOD_OPTIONS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => {
-                  onChange(p.id);
-                  if (p.id !== "custom") setOpen(false);
-                }}
-                className={cn(
-                  "w-full flex items-center justify-between px-2 py-1.5 text-xs rounded hover:bg-secondary/60",
-                  p.id === value && "bg-secondary/60",
-                )}
-              >
-                {p.label}
-                {p.id === value && <Check className="w-3 h-3 text-primary" />}
-              </button>
-            ))}
-          </div>
-          {value === "custom" && (
-            <div className="p-1">
-              <Calendar
-                mode="range"
-                selected={range}
-                onSelect={onRangeChange}
-                numberOfMonths={2}
-                locale={es}
-                className="p-2 pointer-events-auto"
-              />
-              <div className="flex justify-end px-2 pb-1">
-                <button
-                  onClick={() => setOpen(false)}
-                  disabled={!range?.from || !range?.to}
-                  className="text-[11px] text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
-                >
-                  Aplicar ›
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function FilterMenu({
-  selected,
-  onChange,
-}: {
-  selected: Set<RoverState>;
-  onChange: (s: Set<RoverState>) => void;
-}) {
-  const toggle = (id: RoverState) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onChange(next);
-  };
-  const allOn = selected.size === STATE_FILTERS.length;
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card hover:bg-secondary/40 text-xs">
-          <Filter className="w-3.5 h-3.5" /> Filtros
-          {!allOn && (
-            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px]">
-              {selected.size}
-            </span>
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-56 p-2">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-1">
-          Estado
-        </p>
-        {STATE_FILTERS.map((s) => {
-          const on = selected.has(s.id);
-          return (
-            <button
-              key={s.id}
-              onClick={() => toggle(s.id)}
-              className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded hover:bg-secondary/60"
-            >
-              <span className="flex items-center gap-2">
-                <span
-                  className={`w-3.5 h-3.5 rounded border ${on ? "bg-primary border-primary" : "border-border"} flex items-center justify-center`}
-                >
-                  {on && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
-                </span>
-                {s.label}
-              </span>
-            </button>
-          );
-        })}
-        <div className="flex justify-between mt-2 pt-2 border-t border-border">
-          <button
-            onClick={() => onChange(new Set())}
-            className="text-[11px] text-muted-foreground hover:text-foreground px-1"
-          >
-            Limpiar
-          </button>
-          <button
-            onClick={() => onChange(new Set(STATE_FILTERS.map((s) => s.id)))}
-            className="text-[11px] text-primary hover:underline px-1"
-          >
-            Todos
-          </button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function ProductividadPorRover({
   rovers,
   stats,
   source,
   period,
-  range,
 }: {
   rovers: Rover[];
   stats: FleetVehicleStats[];
   source: DataSource;
   period: PeriodId;
-  range?: DateRange;
 }) {
   // Antes esto traía TODAS las órdenes completadas (con el tope de 50 filas de
   // getOrders) y las contaba en JS. Ahora el conteo lo hace Mongo sobre la
@@ -814,7 +625,7 @@ function ProductividadPorRover({
       title="Productividad por rover"
       action={
         <div className="flex items-center gap-2">
-          <TemporalBadge value={periodTemporal(periodLabel(period, range))} />
+          <TemporalBadge value={periodTemporal(periodLabel(period))} />
           <SourceBadge source={source} />
         </div>
       }

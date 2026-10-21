@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DateRange } from "react-day-picker";
 import {
   Activity,
   AlertTriangle,
@@ -98,20 +97,19 @@ function HomePage() {
   const { data: activeOrders } = useActiveOrders();
   const { data: products } = useProducts();
   const [period, setPeriod] = useState<PeriodId>("7d");
-  const [customRange, setCustomRange] = useState<DateRange | undefined>();
   // Same underlying calc as Inventario's "Top rotación" (useInventoryMetrics,
   // dailyDemand acotado por período) — antes esto era un conteo aparte sobre
   // órdenes sin filtrar por fecha, así que nunca iba a coincidir con Inventario.
-  const { products: enrichedProducts } = useInventoryMetrics(period, customRange);
+  const { products: enrichedProducts } = useInventoryMetrics(period);
   // Mismo hook que usa Vehículos — así MTBF coincide entre las dos páginas en
   // vez de que Home muestre "sin datos" mientras Vehículos sí tiene el número.
-  const fleet = useFleetMetrics(period, customRange);
+  const fleet = useFleetMetrics(period);
   // Mismo hook que usa Órdenes para "Tasa de cumplimiento" — antes Home
   // recalculaba lo mismo a mano sobre useOrders() (capado a 50, sin orden
   // garantizado) y encima devolvía "100%" cuando no había datos en vez de
   // "sin datos". Reusarlo hace que el número coincida entre las dos páginas
   // y hereda el fallback correcto (compliancePct === null).
-  const stats = useOrderStats(period, customRange, SLA_MINUTES * 60_000);
+  const stats = useOrderStats(period, SLA_MINUTES * 60_000);
   const { data: positions = [] } = useQuery({
     queryKey: ["warehouse-positions"],
     queryFn: getAllPositions,
@@ -190,14 +188,7 @@ function HomePage() {
           icon={LayoutDashboard}
           title="Home"
           description="Vista general del warehouse · Tiempo real"
-          action={
-            <PeriodPicker
-              value={period}
-              onChange={setPeriod}
-              range={customRange}
-              onRangeChange={setCustomRange}
-            />
-          }
+          action={<PeriodPicker value={period} onChange={setPeriod} />}
         />
       </div>
 
@@ -209,11 +200,11 @@ function HomePage() {
           icon={Package}
           trend={
             topSkus[0]
-              ? `${topSkus[0][2].toLocaleString("es-AR")} u. vendidas · ${periodLabel(period, customRange)}`
+              ? `${topSkus[0][2].toLocaleString("es-AR")} u. vendidas · ${periodLabel(period)}`
               : "Sin demanda en el período"
           }
           accent="primary"
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
           compact
         />
         <KpiCard
@@ -246,11 +237,11 @@ function HomePage() {
           icon={CheckCircle2}
           trend={
             stats.compliancePct !== null
-              ? `completadas vs canceladas · ${periodLabel(period, customRange)}`
+              ? `completadas vs canceladas · ${periodLabel(period)}`
               : "Sin completadas ni canceladas en el período"
           }
           accent="primary"
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
         />
         <KpiCard
           label="T. Prom. Entre Fallas"
@@ -258,7 +249,7 @@ function HomePage() {
           icon={HeartPulse}
           trend={fleet.fleetMtbf === null ? "Sin fallas en el período" : "Prom. entre fallas"}
           accent="destructive"
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
           source={fleet.metricsSource}
         />
       </section>
@@ -375,9 +366,9 @@ function HomePage() {
 
         <Panel
           title="Top SKUs"
-          subtitle={`Mayor demanda diaria · ${periodLabel(period, customRange)}`}
+          subtitle={`Mayor demanda diaria · ${periodLabel(period)}`}
           icon={Target}
-          action={<TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />}
+          action={<TemporalBadge value={periodTemporal(periodLabel(period))} />}
         >
           <div className="space-y-2">
             {topSkus.map(([name, demand, , sku]) => {

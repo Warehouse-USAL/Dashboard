@@ -32,15 +32,14 @@ export type Series = { labels: Record<string, string>; points: Array<[number, nu
 export type MetricsResponse = { metric: string; unit: string; step: string; series: Series[] };
 
 /**
- * Tope de rango de UNA consulta (MetricsQueryTranslator.MAX_RANGE = 31 días).
+ * Tope de rango de UNA consulta que le imponemos al backend.
  *
- * No es un tope de historia: la retención de VictoriaMetrics es de ~400 días y
- * la semilla de demo carga un año entero. Lo que no se puede es pedir todo eso
- * en una sola llamada. Para graficar el año hay que encadenar consultas de a 31
- * días; hoy recortamos a 30 y lo avisamos, que alcanza para los períodos que
- * ofrece el PeriodPicker.
+ * El backend ya no limita a 31 días: se probó con consultas de sólo lectura y
+ * acepta al menos 730 días a paso diario (siempre que no pase el tope de puntos
+ * por serie, ~11 000). Dejamos 365 porque es lo máximo que ofrece el
+ * PeriodPicker ("Último año") y sirve de red de seguridad ante un cambio futuro.
  */
-export const MAX_METRICS_WINDOW_DAYS = 30;
+export const MAX_METRICS_WINDOW_DAYS = 365;
 
 /**
  * Por qué una consulta de métricas no devolvió datos.
@@ -58,9 +57,8 @@ export type MetricsResult =
 /**
  * Recorta la ventana al máximo que una consulta puede abarcar.
  *
- * El PeriodPicker ofrece 90 días, que sirven contra Mongo pero acá serían un
- * `QUERY_TOO_BROAD`. Los datos existen — la retención es de ~400 días — pero no
- * entran en una sola llamada. Se recorta y se avisa, en vez de romper el panel.
+ * Con los períodos fijos del PeriodPicker (máximo 1 año) nunca se recorta; queda
+ * como red de seguridad. Se recorta y se avisa, en vez de romper el panel.
  */
 export function metricsWindow(bounds: { from: number; to: number }): {
   from: string;
