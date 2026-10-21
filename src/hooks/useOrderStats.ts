@@ -5,6 +5,7 @@ import { mapOrderPriority } from "@/lib/api";
 import { periodToBounds, type PeriodId } from "@/lib/dateRange";
 import { ordersWindow, queryEntity } from "@/lib/query-api";
 import { worstSource, type DataSource } from "@/lib/data-source";
+import { bucketKeys, fillBuckets } from "@/lib/series-fill";
 
 export type OrderState = "pending" | "in_progress" | "completed" | "cancelled";
 export type Priority = "urgente" | "alta" | "media" | "baja";
@@ -134,13 +135,18 @@ export function useOrderStats(period: PeriodId, customRange: DateRange | undefin
         ? Math.round((counts.completed / (counts.completed + counts.cancelled)) * 100)
         : null;
 
-    const hourly: HourlyPoint[] = [...(byBucket.data?.items ?? [])]
-      .sort((a, b) => a.bucket.localeCompare(b.bucket))
-      .map((r) => ({
-        bucket: r.bucket,
-        label: formatBucketLabel(r.bucket, bucket),
-        orders: r.orders,
-      }));
+    // Grilla completa del período: los intervalos sin órdenes no vuelven del
+    // backend, y sin rellenarlos el eje termina en la última orden en vez de hoy.
+    // Mientras carga no se rellena, para no mostrar un período entero en cero.
+    const hourly: HourlyPoint[] = fillBuckets(
+      byBucket.data?.items ?? [],
+      byBucket.data ? bucketKeys(oWindow.from, oWindow.to, bucket) : [],
+      bucket,
+    ).map((r) => ({
+      bucket: r.bucket,
+      label: formatBucketLabel(r.bucket, bucket),
+      orders: r.orders,
+    }));
 
     // Objetos nuevos armados a partir de campos primitivos, no las queries
     // completas: así el linter de deps del useMemo puede verificar la lista de
@@ -161,6 +167,8 @@ export function useOrderStats(period: PeriodId, customRange: DateRange | undefin
       cycleTimeMin,
       compliancePct,
       hourly,
+      /** Intervalo de `hourly`: por hora sólo con 24 horas, por día en el resto. */
+      bucketKind: bucket,
       /** True si el rango elegido excedía los 92 días que `orders` admite por consulta. */
       windowClamped: oWindow.clamped,
       source,
@@ -181,6 +189,8 @@ export function useOrderStats(period: PeriodId, customRange: DateRange | undefin
     byBucket.isError,
     oWindow.days,
     oWindow.clamped,
+    oWindow.from,
+    oWindow.to,
     bucket,
   ]);
 }

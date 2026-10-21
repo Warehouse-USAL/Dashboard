@@ -17,6 +17,7 @@ import {
 } from "@/lib/metrics-api";
 import { ordersWindow, queryEntity } from "@/lib/query-api";
 import { worstSource, type DataSource } from "@/lib/data-source";
+import { stepGrid } from "@/lib/series-fill";
 
 /**
  * El estado al que transiciona un rover cuando falla de verdad.
@@ -302,17 +303,32 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
 
     // Histórico: una fila por instante, una columna por rover, para graficarlo
     // tal cual sin transformar en el componente.
-    const timestamps = new Set<number>();
-    failureSeries.forEach((s) => s.points.forEach(([t]) => timestamps.add(t)));
-    const failureHistory: RoverFailurePoint[] = [...timestamps]
-      .sort((a, b) => a - b)
-      .map((t) => {
-        const row = { t } as RoverFailurePoint;
-        for (const [vehicleId, s] of failuresByVehicle) {
-          row[vehicleId] = s.points.find(([pt]) => pt === t)?.[1] ?? 0;
-        }
-        return row;
-      });
+    //
+    // Una fila por intervalo del período, no sólo por los que trae el backend: un
+    // intervalo sin fallas no vuelve en la serie, y sin rellenarlo el eje se
+    // saltea los días sin fallas y termina en la última. Sin ninguna serie la
+    // grilla queda vacía y la página muestra "sin fallas registradas".
+    const stepSeconds = stepToSeconds(step);
+    const fromSeconds = Date.parse(mWindow.from) / 1000;
+    const toSeconds = Date.parse(mWindow.to) / 1000;
+    const firstFailureT = Math.min(...failureSeries.map((s) => s.points[0]?.[0] ?? Infinity));
+    const failureGrid = stepGrid(
+      fromSeconds,
+      toSeconds,
+      stepSeconds,
+      Number.isFinite(firstFailureT) ? firstFailureT : undefined,
+    );
+    const failureByVehicleAndT = new Map<string, Map<number, number>>();
+    for (const [vehicleId, s] of failuresByVehicle) {
+      failureByVehicleAndT.set(vehicleId, new Map(s.points));
+    }
+    const failureHistory: RoverFailurePoint[] = failureGrid.map((t) => {
+      const row = { t } as RoverFailurePoint;
+      for (const [vehicleId] of failuresByVehicle) {
+        row[vehicleId] = failureByVehicleAndT.get(vehicleId)?.get(t) ?? 0;
+      }
+      return row;
+    });
 
     const paretoSeries = seriesOf(pareto.data);
     const paretoRaw = paretoSeries
@@ -336,27 +352,37 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     //
     // Los buckets vienen como "2026-08-01T19:00:00" en hora local de Buenos
     // Aires, sin zona; se parsean como local para que no se corran tres horas.
-    const points = activeSeries[0]?.points ?? [];
-    const stepSeconds = stepToSeconds(step);
-    const firstT = points[0]?.[0];
+    //
+    // La serie de rovers ocupados sólo trae los intervalos en que había alguno
+    // BUSY (sin ninguno no hay nada que contar), así que se rellena con la grilla
+    // completa del período. Eso también es lo que hace válida la cuenta por
+    // índice de abajo: con puntos salteados caía en el intervalo equivocado.
+    const activePoints = new Map<number, number>(activeSeries[0]?.points ?? []);
+    const activityGrid = stepGrid(
+      fromSeconds,
+      toSeconds,
+      stepSeconds,
+      activeSeries[0]?.points[0]?.[0],
+    );
+    const firstT = activityGrid[0];
     const ordersByPoint = new Map<number, number>();
     if (firstT !== undefined) {
       for (const row of ordersByHour.data?.items ?? []) {
         const t = localHourToEpoch(row.hour);
         if (t < firstT) continue; // fuera del rango que grafica la serie
-        // Los puntos están equiespaciados por `step`, así que el índice sale de
-        // una división en vez de buscar el intervalo que lo contiene.
-        const pointT = points[Math.floor((t - firstT) / stepSeconds)]?.[0];
+        // La grilla es equiespaciada por `step`, así que el índice sale de una
+        // división en vez de buscar el intervalo que lo contiene.
+        const pointT = activityGrid[Math.floor((t - firstT) / stepSeconds)];
         if (pointT !== undefined) {
           ordersByPoint.set(pointT, (ordersByPoint.get(pointT) ?? 0) + row.orders);
         }
       }
     }
 
-    const activity: ActivityPoint[] = points.map(([t, rovers]) => ({
+    const activity: ActivityPoint[] = activityGrid.map((t) => ({
       t,
       label: formatInstant(t, stepSeconds),
-      rovers,
+      rovers: activePoints.get(t) ?? 0,
       orders: ordersByPoint.get(t) ?? 0,
     }));
 
@@ -410,6 +436,8 @@ export function useFleetMetrics(period: PeriodId, customRange?: DateRange) {
     ordersByHour.isError,
     mWindow.seconds,
     mWindow.clamped,
+    mWindow.from,
+    mWindow.to,
     step,
   ]);
 }

@@ -957,7 +957,7 @@ export function OrdenesPage() {
 
         <Panel
           className="self-start"
-          title="Órdenes por hora"
+          title={stats.bucketKind === "hour" ? "Órdenes por hora" : "Órdenes por día"}
           action={
             <div className="flex items-center gap-2">
               <TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />

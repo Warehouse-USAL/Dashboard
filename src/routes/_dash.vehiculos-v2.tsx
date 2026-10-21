@@ -131,6 +131,16 @@ function RoversPage() {
 
   const fleet = useFleetMetrics(period, customRange);
 
+  // Color fijo por rover: sale de su posición en la flota completa (ordenada por
+  // id), no de la lista de rovers que fallaron en el período. Así un rover
+  // conserva su color aunque cambie el filtro o fallen otros.
+  const roverIds = useMemo(
+    () => [...new Set([...rovers.map((r) => r.id), ...fleet.vehicleIds])].sort(),
+    [rovers, fleet.vehicleIds],
+  );
+  const roverColor = (id: string) => SERIES_COLORS[roverIds.indexOf(id) % SERIES_COLORS.length];
+  const roversWithoutFailures = roverIds.filter((id) => !fleet.vehicleIds.includes(id));
+
   // El eje de tiempo se formatea según el paso de la serie: con puntos diarios,
   // repetir la hora en cada tick no informa nada y satura el eje.
   const tickFormatter = useMemo(
@@ -352,12 +362,12 @@ function RoversPage() {
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: 10 }} />
-                  {fleet.vehicleIds.map((id, i) => (
+                  {fleet.vehicleIds.map((id) => (
                     <Line
                       key={id}
                       type="monotone"
                       dataKey={id}
-                      stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                      stroke={roverColor(id)}
                       strokeWidth={2}
                       dot={false}
                       name={id}
@@ -366,6 +376,19 @@ function RoversPage() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+          )}
+          {/* Los rovers sin fallas no tienen serie, así que no aparecen en la
+              leyenda del gráfico: se nombran acá, con el color que tendrían. */}
+          {fleet.failureHistory.length > 0 && roversWithoutFailures.length > 0 && (
+            <p className="text-[10px] text-muted-foreground mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>Sin fallas en el período:</span>
+              {roversWithoutFailures.map((id) => (
+                <span key={id} className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm" style={{ background: roverColor(id) }} />
+                  {id}
+                </span>
+              ))}
+            </p>
           )}
           {fleet.clampedToRetention && <ClampNotice shown={fleet.shownDays} />}
         </Panel>
