@@ -15,32 +15,6 @@ describe("periodToBounds", () => {
     expect(to).toBe(Date.now());
     expect(to - from).toBe(24 * 60 * 60 * 1000);
   });
-
-  it("'custom' con rango completo redondea al día entero (00:00:00 a 23:59:59.999)", () => {
-    const range = {
-      from: new Date("2026-08-10T15:30:00"),
-      to: new Date("2026-08-12T09:00:00"),
-    };
-
-    const { from, to } = periodToBounds("custom", range);
-    const fromDate = new Date(from);
-    const toDate = new Date(to);
-
-    expect([fromDate.getHours(), fromDate.getMinutes(), fromDate.getSeconds()]).toEqual([0, 0, 0]);
-    expect([toDate.getHours(), toDate.getMinutes(), toDate.getSeconds()]).toEqual([23, 59, 59]);
-    expect(fromDate.getDate()).toBe(10);
-    expect(toDate.getDate()).toBe(12);
-  });
-
-  it("'custom' sin rango completo (todavía eligiendo) cae a los últimos 30 días en vez de dejar la vista vacía", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-26T12:00:00Z"));
-
-    const { from, to } = periodToBounds("custom", { from: new Date("2026-08-20") });
-
-    expect(to).toBe(Date.now());
-    expect(to - from).toBe(30 * 24 * 60 * 60 * 1000);
-  });
 });
 
 describe("withinBounds", () => {

@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DateRange } from "react-day-picker";
 import {
   Activity,
   AlertTriangle,
@@ -31,6 +30,7 @@ import {
   YAxis,
 } from "recharts";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
+import { ChartBox } from "@/components/dashboard/ChartBox";
 import { WarehouseMap } from "@/components/dashboard/WarehouseMap";
 import { alertTone, alerts, batteryTone, stateStyles, throughput } from "@/lib/dashboard-data";
 import { useQuery } from "@tanstack/react-query";
@@ -49,6 +49,7 @@ import { TablePagination } from "@/components/dashboard/TablePagination";
 import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
 import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
+import { SHOW_ALERTS_AND_SETTINGS } from "@/lib/feature-flags";
 import { live, period as periodTemporal } from "@/lib/temporality";
 import type { Temporality } from "@/lib/temporality";
 import type { DataSource } from "@/lib/data-source";
@@ -98,20 +99,19 @@ function HomePage() {
   const { data: activeOrders } = useActiveOrders();
   const { data: products } = useProducts();
   const [period, setPeriod] = useState<PeriodId>("7d");
-  const [customRange, setCustomRange] = useState<DateRange | undefined>();
   // Same underlying calc as Inventario's "Top rotación" (useInventoryMetrics,
   // dailyDemand acotado por período) — antes esto era un conteo aparte sobre
   // órdenes sin filtrar por fecha, así que nunca iba a coincidir con Inventario.
-  const { products: enrichedProducts } = useInventoryMetrics(period, customRange);
+  const { products: enrichedProducts } = useInventoryMetrics(period);
   // Mismo hook que usa Vehículos — así MTBF coincide entre las dos páginas en
   // vez de que Home muestre "sin datos" mientras Vehículos sí tiene el número.
-  const fleet = useFleetMetrics(period, customRange);
+  const fleet = useFleetMetrics(period);
   // Mismo hook que usa Órdenes para "Tasa de cumplimiento" — antes Home
   // recalculaba lo mismo a mano sobre useOrders() (capado a 50, sin orden
   // garantizado) y encima devolvía "100%" cuando no había datos en vez de
   // "sin datos". Reusarlo hace que el número coincida entre las dos páginas
   // y hereda el fallback correcto (compliancePct === null).
-  const stats = useOrderStats(period, customRange, SLA_MINUTES * 60_000);
+  const stats = useOrderStats(period, SLA_MINUTES * 60_000);
   const { data: positions = [] } = useQuery({
     queryKey: ["warehouse-positions"],
     queryFn: getAllPositions,
@@ -190,14 +190,7 @@ function HomePage() {
           icon={LayoutDashboard}
           title="Home"
           description="Vista general del warehouse · Tiempo real"
-          action={
-            <PeriodPicker
-              value={period}
-              onChange={setPeriod}
-              range={customRange}
-              onRangeChange={setCustomRange}
-            />
-          }
+          action={<PeriodPicker value={period} onChange={setPeriod} />}
         />
       </div>
 
@@ -209,11 +202,11 @@ function HomePage() {
           icon={Package}
           trend={
             topSkus[0]
-              ? `${topSkus[0][2].toLocaleString("es-AR")} u. vendidas · ${periodLabel(period, customRange)}`
+              ? `${topSkus[0][2].toLocaleString("es-AR")} u. vendidas · ${periodLabel(period)}`
               : "Sin demanda en el período"
           }
           accent="primary"
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
           compact
         />
         <KpiCard
@@ -246,11 +239,11 @@ function HomePage() {
           icon={CheckCircle2}
           trend={
             stats.compliancePct !== null
-              ? `completadas vs canceladas · ${periodLabel(period, customRange)}`
+              ? `completadas vs canceladas · ${periodLabel(period)}`
               : "Sin completadas ni canceladas en el período"
           }
           accent="primary"
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
         />
         <KpiCard
           label="T. Prom. Entre Fallas"
@@ -258,7 +251,7 @@ function HomePage() {
           icon={HeartPulse}
           trend={fleet.fleetMtbf === null ? "Sin fallas en el período" : "Prom. entre fallas"}
           accent="destructive"
-          temporal={periodTemporal(periodLabel(period, customRange))}
+          temporal={periodTemporal(periodLabel(period))}
           source={fleet.metricsSource}
         />
       </section>
@@ -288,12 +281,14 @@ function HomePage() {
           action={
             <div className="flex items-center gap-2">
               <SourceBadge source="mock" />
-              <Link
-                to="/alertas"
-                className="text-xs text-primary hover:underline flex items-center gap-1"
-              >
-                Todas <ChevronRight className="w-3 h-3" />
-              </Link>
+              {SHOW_ALERTS_AND_SETTINGS && (
+                <Link
+                  to="/alertas"
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  Todas <ChevronRight className="w-3 h-3" />
+                </Link>
+              )}
             </div>
           }
         >
@@ -375,39 +370,49 @@ function HomePage() {
 
         <Panel
           title="Top SKUs"
-          subtitle={`Mayor demanda diaria · ${periodLabel(period, customRange)}`}
+          subtitle={`Mayor demanda diaria · ${periodLabel(period)}`}
           icon={Target}
-          action={<TemporalBadge value={periodTemporal(periodLabel(period, customRange))} />}
+          action={<TemporalBadge value={periodTemporal(periodLabel(period))} />}
+          expandable
         >
-          <div className="space-y-2">
-            {topSkus.map(([name, demand, , sku]) => {
-              const max = topSkus[0]?.[1] ?? 1;
-              return (
-                <div key={sku} className="p-3 rounded-lg bg-secondary/30 border border-border">
-                  <div className="flex justify-between items-center gap-2 mb-1.5">
-                    <span className="text-xs font-bold truncate flex-1 min-w-0" title={name}>
-                      {name}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground shrink-0">
-                      {/* 2 decimales, no 1: con 1 sólo, SKUs con demanda real
+          {(expanded) => (
+            <div className="space-y-2">
+              {topSkus.map(([name, demand, , sku]) => {
+                const max = topSkus[0]?.[1] ?? 1;
+                return (
+                  <div key={sku} className="p-3 rounded-lg bg-secondary/30 border border-border">
+                    <div className="flex justify-between items-center gap-2 mb-1.5">
+                      <span
+                        className={`font-bold flex-1 min-w-0 ${expanded ? "text-sm" : "text-xs truncate"}`}
+                        title={name}
+                      >
+                        {name}
+                      </span>
+                      <span
+                        className={`text-muted-foreground shrink-0 ${expanded ? "text-xs" : "text-[11px]"}`}
+                      >
+                        {/* 2 decimales, no 1: con 1 sólo, SKUs con demanda real
                           distinta redondeaban al mismo número en pantalla
                           mientras la barra (sin redondear) se veía distinta. */}
-                      {demand < 1 ? demand.toFixed(2) : Math.round(demand)} u/d
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                        {demand < 1 ? demand.toFixed(2) : Math.round(demand)} u/d
+                      </span>
+                    </div>
                     <div
-                      className="h-full bg-primary"
-                      style={{ width: `${(demand / max) * 100}%` }}
-                    />
+                      className={`rounded-full bg-secondary overflow-hidden ${expanded ? "h-2.5" : "h-1.5"}`}
+                    >
+                      <div
+                        className="h-full bg-primary"
+                        style={{ width: `${(demand / max) * 100}%` }}
+                      />
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-            {topSkus.length === 0 && (
-              <p className="text-[11px] text-muted-foreground text-center py-6">Sin datos</p>
-            )}
-          </div>
+                );
+              })}
+              {topSkus.length === 0 && (
+                <p className="text-[11px] text-muted-foreground text-center py-6">Sin datos</p>
+              )}
+            </div>
+          )}
         </Panel>
       </section>
 
@@ -418,16 +423,21 @@ function HomePage() {
           subtitle="Unidades por hora"
           icon={Clock}
           action={<SourceBadge source="mock" />}
+          expandable
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={picking}>
-              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
-              <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <YAxis stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <Tooltip {...tooltip} />
-              <Bar dataKey="unidades" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {(expanded) => (
+            <ChartBox height={220}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={picking}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
+                  <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                  <YAxis stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                  <Tooltip {...tooltip} />
+                  <Bar dataKey="unidades" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartBox>
+          )}
         </Panel>
 
         <Panel
@@ -435,32 +445,41 @@ function HomePage() {
           subtitle="Completadas vs canceladas"
           icon={Activity}
           action={<SourceBadge source="mock" />}
+          expandable
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={ordersHour}>
-              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
-              <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <YAxis stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <Tooltip {...tooltip} />
-              <Bar dataKey="completadas" stackId="a" fill="oklch(0.78 0.18 180)" />
-              <Bar
-                dataKey="canceladas"
-                stackId="a"
-                fill="oklch(0.65 0.24 27)"
-                radius={[4, 4, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="flex gap-4 text-[10px] mt-2 text-muted-foreground justify-center">
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-primary" />
-              Completadas
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-destructive" />
-              Canceladas
-            </span>
-          </div>
+          {(expanded) => (
+            <>
+              <ChartBox height={220}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={ordersHour}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
+                    <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                    <YAxis stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                    <Tooltip {...tooltip} />
+                    <Bar dataKey="completadas" stackId="a" fill="oklch(0.78 0.18 180)" />
+                    <Bar
+                      dataKey="canceladas"
+                      stackId="a"
+                      fill="oklch(0.65 0.24 27)"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartBox>
+              <div
+                className={`flex gap-4 mt-2 text-muted-foreground justify-center ${expanded ? "text-xs" : "text-[10px]"}`}
+              >
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-primary" />
+                  Completadas
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-destructive" />
+                  Canceladas
+                </span>
+              </div>
+            </>
+          )}
         </Panel>
 
         <Panel
@@ -468,26 +487,31 @@ function HomePage() {
           subtitle="Días hasta quiebre"
           icon={Warehouse}
           action={<SourceBadge source="mock" />}
+          expandable
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={stockDuration} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
-              <XAxis type="number" stroke="oklch(0.7 0.02 240)" fontSize={11} />
-              <YAxis
-                type="category"
-                dataKey="sku"
-                stroke="oklch(0.7 0.02 240)"
-                fontSize={10}
-                width={60}
-              />
-              <Tooltip {...tooltip} />
-              <Bar dataKey="dias" radius={[0, 4, 4, 0]}>
-                {stockDuration.map((s) => (
-                  <Cell key={s.sku} fill={stockColor(s.status)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {(expanded) => (
+            <ChartBox height={220}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stockDuration} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
+                  <XAxis type="number" stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
+                  <YAxis
+                    type="category"
+                    dataKey="sku"
+                    stroke="oklch(0.7 0.02 240)"
+                    fontSize={expanded ? 13 : 10}
+                    width={expanded ? 110 : 60}
+                  />
+                  <Tooltip {...tooltip} />
+                  <Bar dataKey="dias" radius={[0, 4, 4, 0]}>
+                    {stockDuration.map((s) => (
+                      <Cell key={s.sku} fill={stockColor(s.status)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartBox>
+          )}
         </Panel>
       </section>
     </div>

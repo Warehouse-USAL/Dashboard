@@ -21,6 +21,7 @@ import {
   Truck,
 } from "lucide-react";
 import { alerts } from "@/lib/dashboard-data";
+import { SHOW_ALERTS_AND_SETTINGS } from "@/lib/feature-flags";
 import logoUrl from "@/assets/smartwarehouse-logo.png";
 import { useInventoryWebSocket } from "@/hooks/useInventoryWebSocket";
 import { useOrderWebSocket } from "@/hooks/useOrderWebSocket";
@@ -36,7 +37,7 @@ export const Route = createFileRoute("/_dash")({
   component: DashLayout,
 });
 
-const nav = [
+const allNav = [
   { to: "/home", icon: LayoutDashboard, label: "Home" },
   { to: "/ordenes-v2", icon: ListChecks, label: "Órdenes" },
   { to: "/vehiculos-v2", icon: Truck, label: "Vehículos" },
@@ -44,6 +45,12 @@ const nav = [
   { to: "/alertas", icon: Bell, label: "Alertas", badge: alerts.length },
   { to: "/configuracion", icon: Settings, label: "Configuración" },
 ] as const;
+
+// Alertas y Configuración se esconden del menú mientras SHOW_ALERTS_AND_SETTINGS
+// esté en false (ver feature-flags.ts).
+const nav = allNav.filter(
+  (item) => SHOW_ALERTS_AND_SETTINGS || (item.to !== "/alertas" && item.to !== "/configuracion"),
+);
 
 function DashLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -142,16 +149,18 @@ function DashLayout() {
               </span>
               EN VIVO · {now || "--:--:--"}
             </div>
-            <Link
-              to="/alertas"
-              className="relative w-9 h-9 rounded-md border border-border bg-secondary/50 hover:bg-secondary flex items-center justify-center"
-              aria-label="alertas"
-            >
-              <Bell className="w-4 h-4" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 text-[10px] bg-destructive text-destructive-foreground rounded-full flex items-center justify-center font-bold">
-                {alerts.length}
-              </span>
-            </Link>
+            {SHOW_ALERTS_AND_SETTINGS && (
+              <Link
+                to="/alertas"
+                className="relative w-9 h-9 rounded-md border border-border bg-secondary/50 hover:bg-secondary flex items-center justify-center"
+                aria-label="alertas"
+              >
+                <Bell className="w-4 h-4" />
+                <span className="absolute -top-1 -right-1 w-4 h-4 text-[10px] bg-destructive text-destructive-foreground rounded-full flex items-center justify-center font-bold">
+                  {alerts.length}
+                </span>
+              </Link>
+            )}
             <div className="w-9 h-9 rounded-md bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground text-sm font-bold">
               OP
             </div>

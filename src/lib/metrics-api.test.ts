@@ -102,12 +102,11 @@ describe("metricsWindow", () => {
     expect(w.seconds).toBe(7 * 86_400);
   });
 
-  it("recorta a 30 días una ventana de 90 y lo avisa", () => {
-    // El tope es por consulta (MAX_RANGE = 31 días), no por historia: la
-    // retención es de ~400 días. Los datos están, pero no entran en una sola
-    // llamada — sin recortar el backend contesta QUERY_TOO_BROAD y el panel
-    // queda vacío en vez de mostrar 30 días.
-    const w = metricsWindow({ from: now - 90 * 86_400_000, to: now });
+  it("recorta al tope una ventana más ancha y lo avisa", () => {
+    // Red de seguridad: los períodos del PeriodPicker llegan a 1 año (365 días)
+    // y no se recortan, pero una ventana mayor se acota al tope en vez de
+    // dejar que el backend conteste QUERY_TOO_BROAD y el panel quede vacío.
+    const w = metricsWindow({ from: now - 500 * 86_400_000, to: now });
     expect(w.clamped).toBe(true);
     expect(w.seconds).toBe(MAX_METRICS_WINDOW_DAYS * 86_400);
   });
