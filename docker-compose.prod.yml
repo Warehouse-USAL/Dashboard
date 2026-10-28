@@ -6,6 +6,8 @@ services:
       # nginx proxy_pass needs a full upstream URL (scheme+host), not a path.
       # The backend container is reachable by name on the shared wh-proxy network.
       BACKEND_URL: ${BACKEND_URL:-http://backend:8080}
+      # Página externa de monitoreo de vehículos (red de la facultad), embebida en un iframe.
+      MONITOREO_URL: ${MONITOREO_URL:-}
     restart: always
     networks:
       - wh-proxy
