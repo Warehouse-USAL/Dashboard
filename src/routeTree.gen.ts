@@ -14,6 +14,7 @@ import { Route as DashRouteImport } from './routes/_dash'
 import { Route as DashIndexRouteImport } from './routes/_dash.index'
 import { Route as DashVehiculosV2RouteImport } from './routes/_dash.vehiculos-v2'
 import { Route as DashOrdenesV2RouteImport } from './routes/_dash.ordenes-v2'
+import { Route as DashMonitoreoVehiculosRouteImport } from './routes/_dash.monitoreo-vehiculos'
 import { Route as DashInventarioV2RouteImport } from './routes/_dash.inventario-v2'
 import { Route as DashHomeRouteImport } from './routes/_dash.home'
 import { Route as DashConfiguracionRouteImport } from './routes/_dash.configuracion'
@@ -41,6 +42,11 @@ const DashVehiculosV2Route = DashVehiculosV2RouteImport.update({
 const DashOrdenesV2Route = DashOrdenesV2RouteImport.update({
   id: '/ordenes-v2',
   path: '/ordenes-v2',
+  getParentRoute: () => DashRoute,
+} as any)
+const DashMonitoreoVehiculosRoute = DashMonitoreoVehiculosRouteImport.update({
+  id: '/monitoreo-vehiculos',
+  path: '/monitoreo-vehiculos',
   getParentRoute: () => DashRoute,
 } as any)
 const DashInventarioV2Route = DashInventarioV2RouteImport.update({
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/configuracion': typeof DashConfiguracionRoute
   '/home': typeof DashHomeRoute
   '/inventario-v2': typeof DashInventarioV2Route
+  '/monitoreo-vehiculos': typeof DashMonitoreoVehiculosRoute
   '/ordenes-v2': typeof DashOrdenesV2Route
   '/vehiculos-v2': typeof DashVehiculosV2Route
 }
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/configuracion': typeof DashConfiguracionRoute
   '/home': typeof DashHomeRoute
   '/inventario-v2': typeof DashInventarioV2Route
+  '/monitoreo-vehiculos': typeof DashMonitoreoVehiculosRoute
   '/ordenes-v2': typeof DashOrdenesV2Route
   '/vehiculos-v2': typeof DashVehiculosV2Route
   '/': typeof DashIndexRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/_dash/configuracion': typeof DashConfiguracionRoute
   '/_dash/home': typeof DashHomeRoute
   '/_dash/inventario-v2': typeof DashInventarioV2Route
+  '/_dash/monitoreo-vehiculos': typeof DashMonitoreoVehiculosRoute
   '/_dash/ordenes-v2': typeof DashOrdenesV2Route
   '/_dash/vehiculos-v2': typeof DashVehiculosV2Route
   '/_dash/': typeof DashIndexRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/configuracion'
     | '/home'
     | '/inventario-v2'
+    | '/monitoreo-vehiculos'
     | '/ordenes-v2'
     | '/vehiculos-v2'
   fileRoutesByTo: FileRoutesByTo
@@ -114,6 +124,7 @@ export interface FileRouteTypes {
     | '/configuracion'
     | '/home'
     | '/inventario-v2'
+    | '/monitoreo-vehiculos'
     | '/ordenes-v2'
     | '/vehiculos-v2'
     | '/'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
     | '/_dash/configuracion'
     | '/_dash/home'
     | '/_dash/inventario-v2'
+    | '/_dash/monitoreo-vehiculos'
     | '/_dash/ordenes-v2'
     | '/_dash/vehiculos-v2'
     | '/_dash/'
@@ -172,6 +184,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashOrdenesV2RouteImport
       parentRoute: typeof DashRoute
     }
+    '/_dash/monitoreo-vehiculos': {
+      id: '/_dash/monitoreo-vehiculos'
+      path: '/monitoreo-vehiculos'
+      fullPath: '/monitoreo-vehiculos'
+      preLoaderRoute: typeof DashMonitoreoVehiculosRouteImport
+      parentRoute: typeof DashRoute
+    }
     '/_dash/inventario-v2': {
       id: '/_dash/inventario-v2'
       path: '/inventario-v2'
@@ -208,6 +227,7 @@ interface DashRouteChildren {
   DashConfiguracionRoute: typeof DashConfiguracionRoute
   DashHomeRoute: typeof DashHomeRoute
   DashInventarioV2Route: typeof DashInventarioV2Route
+  DashMonitoreoVehiculosRoute: typeof DashMonitoreoVehiculosRoute
   DashOrdenesV2Route: typeof DashOrdenesV2Route
   DashVehiculosV2Route: typeof DashVehiculosV2Route
   DashIndexRoute: typeof DashIndexRoute
@@ -218,6 +238,7 @@ const DashRouteChildren: DashRouteChildren = {
   DashConfiguracionRoute: DashConfiguracionRoute,
   DashHomeRoute: DashHomeRoute,
   DashInventarioV2Route: DashInventarioV2Route,
+  DashMonitoreoVehiculosRoute: DashMonitoreoVehiculosRoute,
   DashOrdenesV2Route: DashOrdenesV2Route,
   DashVehiculosV2Route: DashVehiculosV2Route,
   DashIndexRoute: DashIndexRoute,
