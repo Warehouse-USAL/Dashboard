@@ -16,6 +16,7 @@ import {
   LogOut,
   Map as MapIcon,
   PackageSearch,
+  Radar,
   Settings,
   TrendingUp,
   Truck,
@@ -42,6 +43,7 @@ const allNav = [
   { to: "/ordenes-v2", icon: ListChecks, label: "Órdenes" },
   { to: "/vehiculos-v2", icon: Truck, label: "Vehículos" },
   { to: "/inventario-v2", icon: PackageSearch, label: "Inventario" },
+  { to: "/monitoreo-vehiculos", icon: Radar, label: "Monitoreo vehículos" },
   { to: "/alertas", icon: Bell, label: "Alertas", badge: alerts.length },
   { to: "/configuracion", icon: Settings, label: "Configuración" },
 ] as const;
