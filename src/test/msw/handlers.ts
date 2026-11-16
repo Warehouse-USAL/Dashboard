@@ -164,6 +164,42 @@ export const metricsFailureSeries = {
   ],
 };
 
+/**
+ * Buckets de `POST /metrics/suggestion-conversion`. Los totales (33 pedidos, 9 con
+ * recomendación, 71 líneas / 12, 164 unidades / 25) son los del ejemplo de la guía
+ * de integración; el último intervalo está vacío a propósito, como los que
+ * devuelve el backend (trae todos los intervalos del rango, los vacíos en cero).
+ */
+export const suggestionConversionBuckets = [
+  {
+    bucket: "2026-11-14",
+    orders: 10,
+    orders_with_recommendation: 4,
+    lines: 20,
+    lines_from_recommendation: 5,
+    units: 50,
+    units_from_recommendation: 10,
+  },
+  {
+    bucket: "2026-11-15",
+    orders: 23,
+    orders_with_recommendation: 5,
+    lines: 51,
+    lines_from_recommendation: 7,
+    units: 114,
+    units_from_recommendation: 15,
+  },
+  {
+    bucket: "2026-11-16",
+    orders: 0,
+    orders_with_recommendation: 0,
+    lines: 0,
+    lines_from_recommendation: 0,
+    units: 0,
+    units_from_recommendation: 0,
+  },
+];
+
 export const handlers = [
   // Wildcard para no depender de VITE_API_URL (en dev el front pega a rutas
   // relativas vía el proxy de Vite, así que BASE_URL suele ser "").
@@ -206,4 +242,13 @@ export const handlers = [
   }),
 
   http.post("*/metrics/query", () => HttpResponse.json(metricsFailureSeries)),
+
+  http.post("*/metrics/suggestion-conversion", () =>
+    HttpResponse.json({
+      metric: "suggestion_conversion",
+      params_used: {},
+      generated_at: new Date().toISOString(),
+      data: suggestionConversionBuckets,
+    }),
+  ),
 ];

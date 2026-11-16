@@ -151,6 +151,18 @@ describe("Órdenes — integración con el backend mockeado (MSW)", () => {
     expect(within(colaTable()).queryByText("ORD-1002")).not.toBeInTheDocument();
   });
 
+  it("muestra la adopción de recomendaciones con los conteos del backend", async () => {
+    renderPage();
+
+    // Totales de suggestionConversionBuckets: 9/33 pedidos, 12/71 productos, 25/164 unidades.
+    expect(await screen.findByText("9 de 33 pedidos")).toBeInTheDocument();
+    expect(screen.getByText("12 de 71 productos pedidos")).toBeInTheDocument();
+    expect(screen.getByText("25 de 164 unidades")).toBeInTheDocument();
+    expect(screen.getByText("27,3%")).toBeInTheDocument();
+    expect(screen.getByText("16,9%")).toBeInTheDocument();
+    expect(screen.getByText("15,2%")).toBeInTheDocument();
+  });
+
   it("una orden activa enterrada más allá de la página 0 de GET /orders igual aparece en Cola", async () => {
     renderPage();
 
