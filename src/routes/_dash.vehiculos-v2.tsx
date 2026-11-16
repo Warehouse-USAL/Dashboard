@@ -710,7 +710,7 @@ function ProductividadPorRover({
                 <td className="py-3 px-2">
                   {r.cumplimiento === null ? (
                     <p className="text-xs text-right text-muted-foreground pr-4">
-                      sin órdenes cerradas
+                      sin órdenes completadas ni canceladas
                     </p>
                   ) : (
                     <div className="flex items-center justify-end gap-3">
@@ -741,9 +741,11 @@ function ProductividadPorRover({
         itemLabel="rovers"
       />
       <p className="text-[10px] text-muted-foreground mt-3">
-        Cumplimiento = órdenes completadas / (completadas + canceladas) en el período. No cuenta las
-        órdenes en curso. Una cancelada cuenta como no cumplida aunque la haya cancelado un usuario,
-        y una orden reasignada se atribuye al último rover.
+        Cumplimiento = órdenes completadas / (completadas + canceladas) en el período. Las
+        completadas se cuentan por fecha de completado y las canceladas por fecha de creación (el
+        backend no registra cuándo se canceló una orden). No cuenta las órdenes en curso. Una
+        cancelada cuenta como no cumplida aunque la haya cancelado un usuario, y una orden
+        reasignada se atribuye al último rover.
       </p>
     </Panel>
   );

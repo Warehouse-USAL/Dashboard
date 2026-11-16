@@ -82,9 +82,6 @@ function DashLayout() {
       >
         <div className="p-5 border-b border-border flex items-center gap-3">
           <img src={logoUrl} alt="SmartWarehouse" className="h-8 w-auto" />
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Grupo 3 · v1.0
-          </p>
         </div>
         <nav className="p-3 space-y-1 flex-1">
           {nav.map((item) => {
@@ -179,9 +176,6 @@ function DashLayout() {
 
         <main className="flex-1 p-4 sm:p-6 space-y-6 overflow-auto">
           <Outlet />
-          <footer className="text-center text-[11px] text-muted-foreground pt-2">
-            SmartWarehouse · Grupo 3 — Dashboard de Monitoreo · Hito 1 · v1.0
-          </footer>
         </main>
       </div>
     </div>

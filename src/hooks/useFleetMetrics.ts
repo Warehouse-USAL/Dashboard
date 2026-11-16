@@ -207,9 +207,9 @@ export function useFleetMetrics(period: PeriodId) {
 
   // Completadas por rover EN el período, por fecha de completado: es el número de
   // la columna "Órdenes completadas", y tiene que coincidir con lo que se completó
-  // en el período en la página de Órdenes. El cumplimiento (arriba) sigue sobre
-  // las órdenes creadas en el período: completadas y canceladas con la misma
-  // ventana, porque la cancelación no tiene fecha propia en el catálogo.
+  // en el período en la página de Órdenes. También es el numerador del
+  // cumplimiento; las canceladas (denominador) salen de la consulta de arriba,
+  // por fecha de creación, porque la cancelación no tiene fecha propia.
   const completedWindow = useMemo(() => ordersWindow(bounds, "completed_at"), [bounds]);
   const completedByVehicle = useQuery({
     queryKey: [
@@ -273,7 +273,6 @@ export function useFleetMetrics(period: PeriodId) {
     // MAYÚSCULAS ("COMPLETED"), mientras que `GET /orders` lo serializa en
     // minúsculas. Se normaliza acá, en el borde.
     const ordersTotalByVehicle = new Map<string, number>();
-    const ordersDoneByVehicle = new Map<string, number>();
     const ordersCancelledByVehicle = new Map<string, number>();
     for (const row of ordersByVehicle.data?.items ?? []) {
       ordersTotalByVehicle.set(
@@ -281,12 +280,9 @@ export function useFleetMetrics(period: PeriodId) {
         (ordersTotalByVehicle.get(row.vehicle) ?? 0) + row.orders,
       );
       const status = row.status?.toLowerCase();
-      if (status === "completed") {
-        ordersDoneByVehicle.set(
-          row.vehicle,
-          (ordersDoneByVehicle.get(row.vehicle) ?? 0) + row.orders,
-        );
-      } else if (status === "cancelled") {
+      // Las completadas no se toman de acá (ver más abajo): esta consulta es por
+      // fecha de creación y dejaría afuera las que se crearon antes del período.
+      if (status === "cancelled") {
         ordersCancelledByVehicle.set(
           row.vehicle,
           (ordersCancelledByVehicle.get(row.vehicle) ?? 0) + row.orders,
@@ -316,14 +312,21 @@ export function useFleetMetrics(period: PeriodId) {
         const fraction = inErrorByVehicle.has(vehicleId)
           ? avgPoints(inErrorByVehicle.get(vehicleId)!)
           : 0;
-        const completed = ordersDoneByVehicle.get(vehicleId) ?? 0;
+        // Completadas EN el período (por fecha de completado) — el mismo número de
+        // la columna "Órdenes completadas" — más las canceladas creadas en el
+        // período. Antes ambas salían de las órdenes CREADAS en el período: un rover
+        // que completó órdenes creadas antes de la ventana quedaba con
+        // "sin órdenes cerradas" aunque su columna de completadas tuviera valores.
+        // Las canceladas no tienen fecha propia (completed_at queda en null), así
+        // que sólo se pueden ubicar por creación.
+        const completed = completedInPeriodByVehicle.get(vehicleId) ?? 0;
         const closed = completed + (ordersCancelledByVehicle.get(vehicleId) ?? 0);
         return {
           vehicleId,
           failures: n,
           mtbfSeconds: mtbfSeconds(n, mWindow.seconds),
           mttrSeconds: mttrSeconds(n, fraction, mWindow.seconds),
-          orders: completedInPeriodByVehicle.get(vehicleId) ?? 0,
+          orders: completed,
           // Sólo órdenes cerradas: una en curso todavía no es cumplida ni
           // incumplida, y contarla en el denominador bajaba el % hasta que
           // terminara. null, no 0, cuando no cerró ninguna: no tiene cumplimiento.
