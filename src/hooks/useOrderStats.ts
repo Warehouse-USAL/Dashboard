@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { mapOrderPriority } from "@/lib/api";
 import { periodToBounds, type PeriodId } from "@/lib/dateRange";
-import { ordersWindow, queryEntity } from "@/lib/query-api";
+import { ordersWindow, queryEntity, type Filter } from "@/lib/query-api";
 import { worstSource, type DataSource } from "@/lib/data-source";
 import { backendBucketToEpoch, bucketKeys, fillBuckets, type BucketKind } from "@/lib/series-fill";
 import { bucketRangeLabel, formatMonthStart, granularityFor } from "@/lib/granularity";
@@ -44,11 +44,34 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
 
   const windowKey = [oWindow.from.toISOString(), oWindow.to.toISOString()] as const;
 
+  // Sólo completadas, acotadas por cuándo se completaron. `status` va en
+  // MAYÚSCULAS: `/query/*` lee los documentos crudos de Mongo.
+  const completedFilters = useMemo<Filter[]>(
+    () => [...completedWindow.filters, { field: "status", op: "eq", value: "COMPLETED" }],
+    [completedWindow],
+  );
+
+  // Órdenes CREADAS en el período, por estado: alimenta el total, la dona de
+  // distribución y la tasa de cumplimiento (qué entró y cómo está hoy).
   const byStatus = useQuery({
     queryKey: ["order-stats-status", ...windowKey],
     queryFn: () =>
-      queryEntity<{ status: string; n: number; avg_cycle_ms: number | null }>("orders", {
+      queryEntity<{ status: string; n: number }>("orders", {
         filters: oWindow.filters,
+        group_by: [{ field: "status", as: "status" }],
+        aggregates: [{ op: "count", as: "n" }],
+      }),
+    refetchInterval: 30_000,
+  });
+
+  // Completadas EN el período (por fecha de completado), con su cycle time
+  // promedio: alimenta "Completadas / hora", "Cycle time" y el SLA, que hablan de
+  // lo que se completó y tienen que coincidir con el gráfico de Completadas.
+  const byCompleted = useQuery({
+    queryKey: ["order-stats-completed", ...windowKey],
+    queryFn: () =>
+      queryEntity<{ status: string; n: number; avg_cycle_ms: number | null }>("orders", {
+        filters: completedFilters,
         group_by: [{ field: "status", as: "status" }],
         aggregates: [
           { op: "count", as: "n" },
@@ -69,14 +92,14 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
     refetchInterval: 30_000,
   });
 
-  // Receta 14 — dos llamadas, con umbral y sin. La sin-umbral es byStatus de
-  // arriba (counts.completed); acá sólo se pide la que sí filtra, para no
-  // repetir la mitad de la consulta.
+  // Receta 14 — dos llamadas, con umbral y sin. La sin-umbral es byCompleted de
+  // arriba; acá sólo se pide la que sí filtra, para no repetir la mitad de la
+  // consulta. Mismas completadas (por fecha de completado), dentro del SLA.
   const bySla = useQuery({
-    queryKey: ["order-stats-sla", ...windowKey, slaMs],
+    queryKey: ["order-stats-sla-completed", ...windowKey, slaMs],
     queryFn: () =>
       queryEntity<{ status: string; n: number }>("orders", {
-        filters: [...oWindow.filters, { field: "cycle_time_ms", op: "lte", value: slaMs }],
+        filters: [...completedFilters, { field: "cycle_time_ms", op: "lte", value: slaMs }],
         group_by: [{ field: "status", as: "status" }],
         aggregates: [{ op: "count", as: "n" }],
       }),
@@ -85,12 +108,11 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
 
   // Sólo completadas, agrupadas por fecha de completado. Las canceladas, pendientes
   // y en curso no tienen que entrar: antes este gráfico contaba todas las creadas.
-  // `status` va en MAYÚSCULAS: `/query/*` lee los documentos crudos de Mongo.
   const byBucket = useQuery({
     queryKey: ["order-stats-completed-bucket", ...windowKey, bucket],
     queryFn: () =>
       queryEntity<{ bucket: string; orders: number }>("orders", {
-        filters: [...completedWindow.filters, { field: "status", op: "eq", value: "COMPLETED" }],
+        filters: completedFilters,
         group_by: [{ field: "completed_at", bucket, as: "bucket" }],
         aggregates: [{ op: "count", as: "orders" }],
         // Un año en buckets diarios son ~365 filas; el tope de 1000 sobra.
@@ -106,13 +128,17 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
       completed: 0,
       cancelled: 0,
     };
-    let completedAvgCycleMs: number | null = null;
     for (const row of byStatus.data?.items ?? []) {
       const state = row.status?.toLowerCase() as OrderState | undefined;
       if (!state || !(state in counts)) continue;
       counts[state] = row.n;
-      if (state === "completed") completedAvgCycleMs = row.avg_cycle_ms;
     }
+    // Completadas en el período (por fecha de completado) y su cycle time.
+    const completedRow = byCompleted.data?.items.find(
+      (r) => r.status?.toLowerCase() === "completed",
+    );
+    const completedInPeriod = completedRow?.n ?? 0;
+    const completedAvgCycleMs = completedRow?.avg_cycle_ms ?? null;
     const total = counts.pending + counts.in_progress + counts.completed + counts.cancelled;
 
     const priorityCounts: Record<Priority, number> = {
@@ -130,10 +156,10 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
       bySla.data?.items.find((r) => r.status?.toLowerCase() === "completed")?.n ?? 0;
     // null, no 0, cuando no hubo completadas: "0% de cumplimiento" y "no hay
     // datos para medir" son afirmaciones distintas.
-    const slaPct = counts.completed > 0 ? Math.round((withinSla / counts.completed) * 100) : null;
+    const slaPct = completedInPeriod > 0 ? Math.round((withinSla / completedInPeriod) * 100) : null;
 
     const hours = oWindow.days * 24;
-    const ordersPerHour = hours > 0 ? +(counts.completed / hours).toFixed(2) : 0;
+    const ordersPerHour = hours > 0 ? +(completedInPeriod / hours).toFixed(2) : 0;
     const cycleTimeMin =
       completedAvgCycleMs !== null ? +(completedAvgCycleMs / 60_000).toFixed(1) : null;
 
@@ -172,6 +198,7 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
     // abajo sin pedir los objetos de useQuery enteros como dependencia.
     const source = combineSources([
       { isLoading: byStatus.isLoading, isError: byStatus.isError },
+      { isLoading: byCompleted.isLoading, isError: byCompleted.isError },
       { isLoading: byPriority.isLoading, isError: byPriority.isError },
       { isLoading: bySla.isLoading, isError: bySla.isError },
       { isLoading: byBucket.isLoading, isError: byBucket.isError },
@@ -188,7 +215,6 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
       hourly,
       /** Agrupación de `hourly`: hora, día, semana o mes según el período. */
       bucketKind: kind,
-      /** True si el rango elegido excedía los 92 días que `orders` admite por consulta. */
       source,
       isLoading: byStatus.isLoading || byPriority.isLoading,
     };
@@ -196,6 +222,9 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
     byStatus.data,
     byStatus.isLoading,
     byStatus.isError,
+    byCompleted.data,
+    byCompleted.isLoading,
+    byCompleted.isError,
     byPriority.data,
     byPriority.isLoading,
     byPriority.isError,
