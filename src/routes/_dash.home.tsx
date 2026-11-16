@@ -224,10 +224,10 @@ function HomePage() {
           temporal={periodTemporal(periodLabel(period))}
         />
         <KpiCard
-          label="T. Prom. Entre Fallas"
+          label="Tiempo medio entre fallas"
           value={formatDuration(fleet.fleetMtbf)}
           icon={HeartPulse}
-          trend={fleet.fleetMtbf === null ? "Sin fallas en el período" : "Prom. entre fallas"}
+          trend={fleet.fleetMtbf === null ? "Sin fallas en el período" : "Promedio entre fallas"}
           accent="destructive"
           temporal={periodTemporal(periodLabel(period))}
           source={fleet.metricsSource}
