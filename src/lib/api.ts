@@ -5,8 +5,12 @@ const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "";
 
 export type FrontendOrder = {
   id: string;
+  /** Primer producto de la orden (o el único). Para ver todos, usar `items`. */
   product: string;
+  /** Total de unidades de la orden (suma de todos sus productos). */
   qty: number;
+  /** Todos los productos de la orden. Ausente en las órdenes mock. */
+  items?: { sku: string; qty: number }[];
   priority: string;
   state: string;
   rover: string;
@@ -212,7 +216,8 @@ export function mapVehicle(v: BackendVehicle): Rover {
 }
 
 interface BackendOrderItem {
-  productId: string;
+  product_id?: string;
+  productId?: string;
   sku: string;
   quantity: number;
 }
@@ -272,13 +277,18 @@ export function mapOrderPriority(raw: string | null | undefined): string {
 export function mapOrder(o: BackendOrder): FrontendOrder {
   const firstItem = o.items?.[0];
   const product = o.product ?? firstItem?.sku ?? o.product_sku ?? "—";
-  const qty = firstItem?.quantity ?? o.quantity ?? 1;
+  // Todos los productos de la orden, no sólo el primero: el backend manda hasta
+  // varios por orden y la UI los muestra en un popup. `qty` es el total de
+  // unidades (con un solo producto coincide con su cantidad).
+  const items = (o.items ?? []).map((it) => ({ sku: it.sku, qty: it.quantity }));
+  const qty = items.length > 0 ? items.reduce((s, it) => s + it.qty, 0) : (o.quantity ?? 1);
   const rawState = o.status ?? "pending";
   const rover = o.assigned_vehicle_id ?? o.assignedVehicleId ?? o.vehicle_id ?? o.rover ?? "—";
   return {
     id: o.id,
     product,
     qty,
+    items,
     priority: mapOrderPriority(o.priority),
     state: orderStatusMap[rawState] ?? rawState,
     rover,

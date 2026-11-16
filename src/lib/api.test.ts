@@ -61,6 +61,26 @@ describe("mapOrder", () => {
     expect(order.qty).toBe(3);
   });
 
+  it("conserva todos los productos de la orden y suma sus cantidades", () => {
+    const order = mapOrder({
+      id: "ORD-MULTI",
+      items: [
+        { product_id: "P1", sku: "SKU-1", quantity: 4 },
+        { product_id: "P2", sku: "SKU-2", quantity: 3 },
+        { product_id: "P3", sku: "SKU-3", quantity: 1 },
+      ],
+    });
+
+    expect(order.items).toEqual([
+      { sku: "SKU-1", qty: 4 },
+      { sku: "SKU-2", qty: 3 },
+      { sku: "SKU-3", qty: 1 },
+    ]);
+    expect(order.qty).toBe(8);
+    // `product` sigue siendo el primero, para quien sólo necesita uno.
+    expect(order.product).toBe("SKU-1");
+  });
+
   it("prioriza assigned_vehicle_id sobre los demás alias de vehículo", () => {
     const order = mapOrder({
       id: "ORD-2",

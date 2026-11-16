@@ -99,6 +99,21 @@ export const backendOrders = [
     timestamps: { created_at: minutesAgo(1), started_at: null, completed_at: null },
     cancel_reason: null,
   },
+  // Orden multiproducto: el backend manda todos sus productos en `items`.
+  {
+    id: "ORD-MULTI",
+    status: "pending",
+    requested_by_user_id: "USR-03",
+    items: [
+      { product_id: "PROD-101", sku: "SKU-M1", quantity: 4 },
+      { product_id: "PROD-102", sku: "SKU-M2", quantity: 3 },
+      { product_id: "PROD-103", sku: "SKU-M3", quantity: 1 },
+    ],
+    destination_area: "AREA-F",
+    assigned_vehicle_id: null,
+    timestamps: { created_at: minutesAgo(2), started_at: null, completed_at: null },
+    cancel_reason: null,
+  },
 ];
 
 /**

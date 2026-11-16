@@ -111,6 +111,46 @@ describe("Órdenes — integración con el backend mockeado (MSW)", () => {
     expect(within(colaTable()).queryByText("ORD-1001")).not.toBeInTheDocument();
   });
 
+  it("una orden multiproducto muestra un botón con la cantidad y el popup lista todos sus productos", async () => {
+    renderPage();
+    await within(colaTable()).findByText("ORD-MULTI");
+
+    const row = rowOf("ORD-MULTI");
+    // Cant. es el total de unidades de la orden: 4 + 3 + 1.
+    expect(within(row).getByText("×8")).toBeInTheDocument();
+
+    await userEvent.click(
+      within(row).getByRole("button", { name: "Ver los 3 productos de la orden ORD-MULTI" }),
+    );
+
+    // Sin nombre en el catálogo del test, el popup cae al SKU (aparece en las dos columnas).
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByText("SKU-M1").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("SKU-M2").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("SKU-M3").length).toBeGreaterThan(0);
+    expect(within(dialog).getByText("×4")).toBeInTheDocument();
+  });
+
+  it("una orden de un solo producto no muestra el botón de productos", async () => {
+    renderPage();
+    await within(colaTable()).findByText("ORD-1002");
+
+    expect(
+      within(rowOf("ORD-1002")).queryByRole("button", { name: /Ver los \d+ productos/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("el buscador también encuentra una orden por cualquiera de sus productos", async () => {
+    renderPage();
+    await within(colaTable()).findByText("ORD-MULTI");
+
+    // SKU-M3 es el tercer producto de ORD-MULTI, no el primero.
+    await userEvent.type(screen.getByPlaceholderText("Buscar..."), "SKU-M3");
+
+    expect(within(colaTable()).getByText("ORD-MULTI")).toBeInTheDocument();
+    expect(within(colaTable()).queryByText("ORD-1002")).not.toBeInTheDocument();
+  });
+
   it("una orden activa enterrada más allá de la página 0 de GET /orders igual aparece en Cola", async () => {
     renderPage();
 
