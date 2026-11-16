@@ -40,6 +40,23 @@ export function ordersChartTitle(kind: BucketKind): string {
   return "Completadas por mes";
 }
 
+const UNIT_LABEL: Record<BucketKind, string> = {
+  hour: "hora",
+  day: "día",
+  week: "semana",
+  month: "mes",
+};
+
+/** Título del gráfico de órdenes (completadas + canceladas) de Home según su agrupación. */
+export function ordersByBucketTitle(kind: BucketKind): string {
+  return `Órdenes por ${UNIT_LABEL[kind]}`;
+}
+
+/** Subtítulo del gráfico de eficiencia de picking según su agrupación. */
+export function pickingSubtitle(kind: BucketKind): string {
+  return `Unidades por ${UNIT_LABEL[kind]}`;
+}
+
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
 const MONTHS_LONG = [
