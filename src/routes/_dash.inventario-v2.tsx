@@ -8,11 +8,9 @@ import {
   Clock,
   TrendingDown,
   Search,
-  Download,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
-  RefreshCw,
 } from "lucide-react";
 import { useInventoryMetrics, type EnrichedProduct } from "@/hooks/useInventoryMetrics";
 import type { FrontendRestock } from "@/lib/api";
@@ -79,6 +77,7 @@ type SortKey =
   | "physical"
   | "reserved"
   | "available"
+  | "unitPrice"
   // Pendiente (vuelven con `blended_demand`): columnas "Dem. diaria"/"Cobertura".
   // | "dailyDemand"
   // | "coverageDays"
@@ -93,6 +92,20 @@ function fmtMoney(ars: number): string {
   if (ars >= 1_000_000) return `$${(ars / 1_000_000).toFixed(1)}M`;
   if (ars >= 1_000) return `$${(ars / 1_000).toFixed(0)}K`;
   return `$${Math.round(ars).toLocaleString("es-AR")}`;
+}
+
+/** Importe completo, sin abreviar, para el tooltip: "$1.234.567,89". */
+function fmtMoneyFull(ars: number): string {
+  return `$${ars.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Importe abreviado (como `fmtMoney`) que muestra el valor completo al pasar el mouse. */
+function MoneyCell({ ars }: { ars: number }) {
+  return (
+    <span title={fmtMoneyFull(ars)} className="cursor-help">
+      {fmtMoney(ars)}
+    </span>
+  );
 }
 
 function fmtCoverage(days: number): string {
@@ -234,6 +247,9 @@ function InventarioPage() {
         // case "coverageDays":
         //   cmp = a.riskCoverageDays - b.riskCoverageDays;
         //   break;
+        case "unitPrice":
+          cmp = a.priceCents - b.priceCents;
+          break;
         case "stockValue":
           cmp = a.stockValue - b.stockValue;
           break;
@@ -273,21 +289,8 @@ function InventarioPage() {
   return (
     <div className="space-y-5">
       {/* ── Header ── */}
-      <div className="flex items-end justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">Inventario</h1>
-          <p className="text-xs text-muted-foreground">
-            Estado actual del stock · actualización cada 10s
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-secondary/40">
-            <Download className="w-3.5 h-3.5" /> Exportar
-          </button>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-secondary/40">
-            <RefreshCw className="w-3.5 h-3.5" /> Actualizar
-          </button>
-        </div>
+      <div>
+        <h1 className="text-lg font-bold tracking-tight">Inventario</h1>
       </div>
 
       {/* ── 5 KPI Cards ── */}
@@ -369,7 +372,7 @@ function InventarioPage() {
             : "Sin recomendación de reposición todavía: el cron aún no corrió"}
         </p>
         <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-sm min-w-[860px]">
+          <table className="w-full text-sm min-w-[940px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                 <SortTh k="sku" active={sortKey} dir={sortDir} onSort={toggleSort}>
@@ -389,6 +392,9 @@ function InventarioPage() {
                 </SortTh>
                 <SortTh k="available" active={sortKey} dir={sortDir} onSort={toggleSort} right>
                   Disponible
+                </SortTh>
+                <SortTh k="unitPrice" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Precio unit.
                 </SortTh>
                 {/* Pendiente: "Dem. diaria" y "Cobertura" vuelven cuando `product.restock`
                     exponga `blended_demand`. Antes usaban la Ventana de riesgo configurable.
@@ -432,7 +438,7 @@ function InventarioPage() {
               ))}
               {filteredTable.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center py-10 text-xs text-muted-foreground">
+                  <td colSpan={11} className="text-center py-10 text-xs text-muted-foreground">
                     Sin resultados
                   </td>
                 </tr>
@@ -617,6 +623,9 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
         {p.reserved}
       </td>
       <td className="py-3 px-2 text-xs text-right tabular-nums font-semibold">{p.available}</td>
+      <td className="py-3 px-2 text-xs text-right tabular-nums">
+        {p.priceCents > 0 ? <MoneyCell ars={p.priceCents / 100} /> : "—"}
+      </td>
       {/* Pendiente: celdas "Dem. diaria" y "Cobertura" (ver encabezado de la tabla).
       <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
         {fmtDemand(p.riskDailyDemand)}
@@ -633,7 +642,7 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
       </td>
       */}
       <td className="py-3 px-2 text-xs text-right tabular-nums">
-        {p.priceCents > 0 ? fmtMoney(p.stockValue) : "—"}
+        {p.priceCents > 0 ? <MoneyCell ars={p.stockValue} /> : "—"}
       </td>
       <td className="py-3 px-2 text-xs text-muted-foreground whitespace-nowrap">
         {fmtLastOrder(p.lastOrderDate, p.lastOrderDaysAgo)}
