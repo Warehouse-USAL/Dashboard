@@ -84,14 +84,27 @@ export function fillBuckets<T extends { bucket: string; orders: number }>(
   keys: string[],
   kind: BucketKind,
 ): Array<{ bucket: string; orders: number }> {
+  return fillSeries(rows, keys, kind, "orders");
+}
+
+/** Igual que `fillBuckets`, pero para cualquier columna numérica (`units`, `cancelled`, …). */
+export function fillSeries<K extends string>(
+  rows: Array<{ bucket: string } & Record<K, number>>,
+  keys: string[],
+  kind: BucketKind,
+  valueKey: K,
+): Array<{ bucket: string } & Record<K, number>> {
   const byKey = new Map<string, number>(keys.map((k) => [k, 0]));
   for (const r of rows) {
     const key = bucketKey(bucketStart(backendBucketToEpoch(r.bucket), kind), kind);
-    byKey.set(key, (byKey.get(key) ?? 0) + r.orders);
+    byKey.set(key, (byKey.get(key) ?? 0) + r[valueKey]);
   }
   return [...byKey.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([bucket, orders]) => ({ bucket, orders }));
+    .map(
+      ([bucket, value]) =>
+        ({ bucket, [valueKey]: value }) as { bucket: string } & Record<K, number>,
+    );
 }
 
 /**
