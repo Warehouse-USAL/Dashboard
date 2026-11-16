@@ -29,7 +29,7 @@ import { formatDuration } from "@/lib/metrics-api";
 import { periodLabel, type PeriodId } from "@/lib/dateRange";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
-import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { StickyPeriodBar } from "@/components/dashboard/StickyPeriodBar";
 import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import { useHomeCharts } from "@/hooks/useHomeCharts";
@@ -160,17 +160,13 @@ function HomePage() {
 
   return (
     <div className="space-y-6">
-      {/* sticky: no modifica PageHeader (lo comparten Alertas/Configuración,
-          que no piden esto) — el contenedor local es lo que se pega al hacer
-          scroll dentro de <main>. */}
-      <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2">
-        <PageHeader
-          icon={LayoutDashboard}
-          title="Home"
-          description="Vista general del warehouse · Tiempo real"
-          action={<PeriodPicker value={period} onChange={setPeriod} />}
-        />
-      </div>
+      <PageHeader
+        icon={LayoutDashboard}
+        title="Home"
+        description="Vista general del warehouse · Tiempo real"
+      />
+      {/* El título se va con el scroll; sólo se queda pegada la barra del período. */}
+      <StickyPeriodBar value={period} onChange={setPeriod} />
 
       {/* KPIs */}
       <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">

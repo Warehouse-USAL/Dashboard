@@ -26,7 +26,7 @@ import { useFleetMetrics, type FleetVehicleStats } from "@/hooks/useFleetMetrics
 import { formatDuration, formatInstant } from "@/lib/metrics-api";
 import type { DataSource } from "@/lib/data-source";
 import type { Rover } from "@/lib/dashboard-data";
-import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { StickyPeriodBar } from "@/components/dashboard/StickyPeriodBar";
 import { periodLabel, type PeriodId } from "@/lib/dateRange";
 import { bucketRangeLabel, formatMonthStart } from "@/lib/granularity";
 
@@ -207,10 +207,7 @@ function RoversPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 flex items-end justify-end gap-2 flex-wrap text-xs">
-        <PeriodPicker value={period} onChange={setPeriod} />
-      </div>
+      <StickyPeriodBar value={period} onChange={setPeriod} />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">

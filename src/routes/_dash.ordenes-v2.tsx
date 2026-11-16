@@ -37,8 +37,9 @@ import type { Temporality } from "@/lib/temporality";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { periodLabel, periodToBounds, type PeriodId } from "@/lib/dateRange";
-import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { StickyPeriodBar } from "@/components/dashboard/StickyPeriodBar";
 import { ordersChartTitle } from "@/lib/granularity";
+import { SuggestionAdoptionPanel } from "@/components/dashboard/SuggestionAdoptionPanel";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_dash/ordenes-v2")({
@@ -637,10 +638,7 @@ export function OrdenesPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 flex items-end justify-end gap-2 flex-wrap text-xs">
-        <PeriodPicker value={period} onChange={setPeriod} />
-      </div>
+      <StickyPeriodBar value={period} onChange={setPeriod} />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1038,6 +1036,9 @@ export function OrdenesPage() {
           </Panel>
         </div>
       </div>
+
+      {/* Adopción de las recomendaciones de la app móvil: métrica de producto, no operativa */}
+      <SuggestionAdoptionPanel period={period} />
 
       {/* Histórico, a ancho completo: tiene 10 columnas */}
       <Panel
