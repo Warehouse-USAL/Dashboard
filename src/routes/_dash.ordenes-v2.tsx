@@ -962,7 +962,7 @@ export function OrdenesPage() {
                       stroke={COLORS.amber}
                       strokeWidth={2}
                       dot={{ r: expanded ? 3 : 2 }}
-                      name="Órdenes"
+                      name="Completadas"
                     />
                   </LineChart>
                 </ResponsiveContainer>

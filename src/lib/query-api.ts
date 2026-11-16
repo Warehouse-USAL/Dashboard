@@ -118,7 +118,9 @@ export async function queryEntity<T = Record<string, unknown>>(
 export const MAX_ORDERS_WINDOW_DAYS = 365;
 
 /**
- * Los dos filtros de `created_at` que toda agregación sobre `orders` exige.
+ * Los dos filtros de fecha que toda agregación sobre `orders` exige. Por defecto
+ * acota por `created_at`; con `completed_at` acota por cuándo se completó la
+ * orden (el backend acepta cualquiera de los dos como ventana).
  *
  * Recorta el extremo viejo al tope en vez de dejar que el backend rechace la
  * consulta. Con los períodos fijos del PeriodPicker nunca se recorta; queda como
@@ -127,7 +129,10 @@ export const MAX_ORDERS_WINDOW_DAYS = 365;
  * Sólo para `orders`. En `positions`/`products`/`vehicles` filtrar por fecha
  * está prohibido: descartaría en silencio el stock más viejo.
  */
-export function ordersWindow(bounds: { from: number; to: number }): {
+export function ordersWindow(
+  bounds: { from: number; to: number },
+  field: "created_at" | "completed_at" = "created_at",
+): {
   filters: [Filter, Filter];
   from: Date;
   to: Date;
@@ -140,8 +145,8 @@ export function ordersWindow(bounds: { from: number; to: number }): {
   const to = new Date(bounds.to);
   return {
     filters: [
-      { field: "created_at", op: "gte", value: from.toISOString() },
-      { field: "created_at", op: "lt", value: to.toISOString() },
+      { field, op: "gte", value: from.toISOString() },
+      { field, op: "lt", value: to.toISOString() },
     ],
     from,
     to,

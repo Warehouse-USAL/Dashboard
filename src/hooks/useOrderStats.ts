@@ -32,6 +32,10 @@ export type HourlyPoint = { bucket: string; label: string; range?: string; order
 export function useOrderStats(period: PeriodId, slaMs: number) {
   const bounds = useMemo(() => periodToBounds(period), [period]);
   const oWindow = useMemo(() => ordersWindow(bounds), [bounds]);
+  // Misma ventana, pero acotada por cuándo se completó cada orden: el gráfico
+  // cuenta completadas en el intervalo en que se completaron, no en el que se
+  // crearon (una orden creada ayer y completada hoy cuenta hoy).
+  const completedWindow = useMemo(() => ordersWindow(bounds, "completed_at"), [bounds]);
   // Agrupación del gráfico (hora, día, semana o mes), igual para todos los
   // gráficos de series. El backend sólo agrupa por hora o por día: semana y mes
   // se arman acá sumando los días (365 filas como máximo, el tope es 1000).
@@ -79,12 +83,15 @@ export function useOrderStats(period: PeriodId, slaMs: number) {
     refetchInterval: 30_000,
   });
 
+  // Sólo completadas, agrupadas por fecha de completado. Las canceladas, pendientes
+  // y en curso no tienen que entrar: antes este gráfico contaba todas las creadas.
+  // `status` va en MAYÚSCULAS: `/query/*` lee los documentos crudos de Mongo.
   const byBucket = useQuery({
-    queryKey: ["order-stats-bucket", ...windowKey, bucket],
+    queryKey: ["order-stats-completed-bucket", ...windowKey, bucket],
     queryFn: () =>
       queryEntity<{ bucket: string; orders: number }>("orders", {
-        filters: oWindow.filters,
-        group_by: [{ field: "created_at", bucket, as: "bucket" }],
+        filters: [...completedWindow.filters, { field: "status", op: "eq", value: "COMPLETED" }],
+        group_by: [{ field: "completed_at", bucket, as: "bucket" }],
         aggregates: [{ op: "count", as: "orders" }],
         // Un año en buckets diarios son ~365 filas; el tope de 1000 sobra.
         size: 1000,
