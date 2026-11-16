@@ -205,6 +205,32 @@ export function useFleetMetrics(period: PeriodId) {
     refetchInterval: 30_000,
   });
 
+  // Completadas por rover EN el período, por fecha de completado: es el número de
+  // la columna "Órdenes completadas", y tiene que coincidir con lo que se completó
+  // en el período en la página de Órdenes. El cumplimiento (arriba) sigue sobre
+  // las órdenes creadas en el período: completadas y canceladas con la misma
+  // ventana, porque la cancelación no tiene fecha propia en el catálogo.
+  const completedWindow = useMemo(() => ordersWindow(bounds, "completed_at"), [bounds]);
+  const completedByVehicle = useQuery({
+    queryKey: [
+      "completed-by-vehicle",
+      completedWindow.from.toISOString(),
+      completedWindow.to.toISOString(),
+    ],
+    queryFn: () =>
+      queryEntity<{ vehicle: string; orders: number }>("orders", {
+        filters: [
+          ...completedWindow.filters,
+          { field: "status", op: "eq", value: "COMPLETED" },
+          { field: "assigned_vehicle_id", op: "exists", value: true },
+        ],
+        group_by: [{ field: "assigned_vehicle_id", as: "vehicle" }],
+        aggregates: [{ op: "count", as: "orders" }],
+        size: 500,
+      }),
+    refetchInterval: 30_000,
+  });
+
   // Receta 9 — órdenes por hora, la otra mitad del gráfico de actividad.
   //
   // 1000 filas es el tope del backend en modo agregado: una ventana de hasta 41
@@ -268,12 +294,18 @@ export function useFleetMetrics(period: PeriodId) {
       }
     }
 
-    // Un rover puede aparecer en cualquiera de las tres fuentes: uno que nunca
-    // falló no tiene serie de fallas, y uno sin órdenes no está en Mongo.
+    // Completadas en el período por rover (por fecha de completado).
+    const completedInPeriodByVehicle = new Map<string, number>(
+      (completedByVehicle.data?.items ?? []).map((r) => [r.vehicle, r.orders]),
+    );
+
+    // Un rover puede aparecer en cualquiera de las fuentes: uno que nunca falló
+    // no tiene serie de fallas, y uno sin órdenes no está en Mongo.
     const vehicleIds = new Set<string>([
       ...failuresByVehicle.keys(),
       ...inErrorByVehicle.keys(),
       ...ordersTotalByVehicle.keys(),
+      ...completedInPeriodByVehicle.keys(),
     ]);
 
     const perVehicle: FleetVehicleStats[] = [...vehicleIds]
@@ -291,7 +323,7 @@ export function useFleetMetrics(period: PeriodId) {
           failures: n,
           mtbfSeconds: mtbfSeconds(n, mWindow.seconds),
           mttrSeconds: mttrSeconds(n, fraction, mWindow.seconds),
-          orders: completed,
+          orders: completedInPeriodByVehicle.get(vehicleId) ?? 0,
           // Sólo órdenes cerradas: una en curso todavía no es cumplida ni
           // incumplida, y contarla en el denominador bajaba el % hasta que
           // terminara. null, no 0, cuando no cerró ninguna: no tiene cumplimiento.
@@ -421,7 +453,9 @@ export function useFleetMetrics(period: PeriodId) {
       busyFraction.data,
     ]);
     const ordersSource: DataSource =
-      ordersByVehicle.isError || ordersByHour.isError ? "mock" : "live";
+      ordersByVehicle.isError || completedByVehicle.isError || ordersByHour.isError
+        ? "mock"
+        : "live";
 
     return {
       perVehicle,
@@ -456,6 +490,8 @@ export function useFleetMetrics(period: PeriodId) {
     ordersByVehicle.data,
     ordersByVehicle.isError,
     ordersByVehicle.isLoading,
+    completedByVehicle.data,
+    completedByVehicle.isError,
     ordersByHour.data,
     ordersByHour.isError,
     mWindow.seconds,

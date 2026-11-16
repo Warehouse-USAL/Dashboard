@@ -32,12 +32,12 @@ export function metricsStepFor(kind: BucketKind): "1h" | "1d" {
   return kind === "hour" ? "1h" : "1d";
 }
 
-/** Título del gráfico de órdenes según su agrupación. */
+/** Título del gráfico de órdenes completadas según su agrupación. */
 export function ordersChartTitle(kind: BucketKind): string {
-  if (kind === "hour") return "Órdenes por hora";
-  if (kind === "day") return "Órdenes por día";
-  if (kind === "week") return "Órdenes por semana";
-  return "Órdenes por mes";
+  if (kind === "hour") return "Completadas por hora";
+  if (kind === "day") return "Completadas por día";
+  if (kind === "week") return "Completadas por semana";
+  return "Completadas por mes";
 }
 
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
