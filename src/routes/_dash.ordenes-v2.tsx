@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
   Download,
   Search,
-  ChevronDown,
   ChevronRight,
   Gauge,
   Timer,
@@ -25,6 +24,8 @@ import {
 } from "recharts";
 import { useActiveOrders, useOrdersInRange } from "@/hooks/useOrders";
 import { useOrderStats } from "@/hooks/useOrderStats";
+import { useProducts } from "@/hooks/useProducts";
+import { OrderItemsDialog, type OrderItemRow } from "@/components/dashboard/OrderItemsDialog";
 import type { ComponentProps } from "react";
 import { Panel as SharedPanel } from "@/components/dashboard/Panel";
 import { ChartBox } from "@/components/dashboard/ChartBox";
@@ -379,32 +380,50 @@ const PRIORITY_COLOR: Record<Priority, string> = {
   baja: COLORS.muted,
 };
 
-// Mapa de órdenes con múltiples productos (mock). Las órdenes no listadas
-// aquí se consideran de un único producto (su .product / .qty).
-const MULTI_ITEMS: Record<string, Array<{ sku: string; qty: number }>> = {
-  "OR-12504": [
-    { sku: "SKU-A102 · Caja 24u", qty: 3 },
-    { sku: "SKU-B441 · Pallet", qty: 2 },
-    { sku: "SKU-C019 · Caja 12u", qty: 4 },
-  ],
-  "OR-12511": [
-    { sku: "SKU-C019 · Caja 12u", qty: 5 },
-    { sku: "SKU-D227 · Bulto", qty: 1 },
-  ],
-  "OR-12517": [
-    { sku: "SKU-E308 · Pallet", qty: 1 },
-    { sku: "SKU-A102 · Caja 24u", qty: 6 },
-    { sku: "SKU-B441 · Pallet", qty: 1 },
-    { sku: "SKU-D227 · Bulto", qty: 2 },
-  ],
+type OrderProduct = { sku: string; qty: number };
+
+/** Todos los productos de una orden. Las órdenes mock no traen `items`: caen al producto suelto. */
+function orderProducts(o: {
+  product: string;
+  qty: number;
+  items?: OrderProduct[];
+}): OrderProduct[] {
+  return o.items && o.items.length > 0 ? o.items : [{ sku: o.product, qty: o.qty }];
+}
+
+/** Orden abierta en el popup de productos. */
+type DialogOrder = {
+  id: string;
+  state: OrderState;
+  priority: Priority;
+  items: OrderProduct[];
 };
 
-function getOrderItems(o: { id: string; product: string; qty: number }) {
-  const items = MULTI_ITEMS[o.id];
-  if (items && items.length > 1) {
-    return { items, total: items.reduce((s, i) => s + i.qty, 0), multi: true as const };
-  }
-  return { items: [{ sku: o.product, qty: o.qty }], total: o.qty, multi: false as const };
+/** Celda "Producto": el nombre si es uno solo, o un botón "N productos" que abre el popup. */
+function ProductCell({
+  items,
+  onOpen,
+  orderId,
+}: {
+  items: OrderProduct[];
+  onOpen: () => void;
+  orderId: string;
+}) {
+  if (items.length <= 1) return <>{items[0]?.sku ?? "—"}</>;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Ver los ${items.length} productos de la orden ${orderId}`}
+      className="inline-flex items-center gap-1.5 text-foreground font-medium hover:text-primary"
+    >
+      Productos
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/60 border border-border tabular-nums">
+        {items.length}
+      </span>
+      <ChevronRight className="w-3 h-3 text-muted-foreground" />
+    </button>
+  );
 }
 
 export function OrdenesPage() {
@@ -428,7 +447,16 @@ export function OrdenesPage() {
   // Búsqueda propia del Histórico: no comparte estado con la de Cola (esa busca
   // en una tabla distinta, con otras órdenes a la vista).
   const [histQ, setHistQ] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Orden cuyo detalle de productos está abierto en el popup (Cola e Histórico).
+  const [dialogOrder, setDialogOrder] = useState<DialogOrder | null>(null);
+  // Nombre de cada producto por SKU: las órdenes sólo traen el SKU.
+  const { data: catalog } = useProducts();
+  const productNames = useMemo(() => new Map(catalog.map((p) => [p.sku, p.name])), [catalog]);
+  const dialogItems: OrderItemRow[] = (dialogOrder?.items ?? []).map((it) => ({
+    sku: it.sku,
+    name: productNames.get(it.sku) ?? it.sku,
+    qty: it.qty,
+  }));
 
   // Sigue haciendo falta sólo para "Histórico de órdenes" — el resto de los
   // paneles que usaban esto ahora leen de useOrderStats, que pide su propia
@@ -451,14 +479,6 @@ export function OrdenesPage() {
       })),
     [histOrdersRaw],
   );
-
-  const toggleExpanded = (id: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   // KPIs, distribución, cumplimiento, prioridad y el gráfico "por hora" — todos
   // agregados server-side sobre las 729 órdenes reales, acotados por el mismo
@@ -542,7 +562,14 @@ export function OrdenesPage() {
       activeOrders.filter((o) => {
         if (o.state !== "pending" && o.state !== "in_progress") return false;
         if (tableTab !== "todas" && o.state !== tableTab) return false;
-        if (q && !`${o.id} ${o.product} ${o.rover}`.toLowerCase().includes(q.toLowerCase()))
+        if (
+          q &&
+          !`${o.id} ${orderProducts(o)
+            .map((it) => it.sku)
+            .join(" ")} ${o.rover}`
+            .toLowerCase()
+            .includes(q.toLowerCase())
+        )
           return false;
         return true;
       }),
@@ -570,7 +597,7 @@ export function OrdenesPage() {
       .filter((o) => !needle || o.id.toLowerCase().includes(needle))
       .map((o) => {
         const t = o.createdAt ? new Date(o.createdAt).getTime() : 0;
-        const { items, total, multi } = getOrderItems(o);
+        const items = orderProducts(o);
         const cycleMs =
           o.createdAt && o.completedAt
             ? new Date(o.completedAt).getTime() - new Date(o.createdAt).getTime()
@@ -583,8 +610,8 @@ export function OrdenesPage() {
           orden: o.id,
           t,
           fecha: o.createdAt ? format(new Date(o.createdAt), "dd/MM/yyyy HH:mm") : "—",
-          producto: multi ? `${items.length} productos` : (items[0]?.sku ?? o.product),
-          qty: total,
+          items,
+          qty: o.qty,
           priority: (o.priority?.toLowerCase() as Priority) ?? "media",
           state: o.state as OrderState,
           rover: o.rover,
@@ -773,7 +800,7 @@ export function OrdenesPage() {
         </Panel>
 
         <Panel
-          className="self-start"
+          className="flex flex-col"
           title="Tasa de cumplimiento"
           action={
             <div className="flex items-center gap-2">
@@ -782,11 +809,21 @@ export function OrdenesPage() {
             </div>
           }
         >
-          <div className="flex flex-col items-center justify-center py-4">
-            <span className="text-3xl font-bold">
+          {/* flex-1: la tarjeta se estira a la altura de sus vecinas, así que el
+              contenido se centra y crece en vez de dejar el hueco abajo. */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-4">
+            <span className="text-5xl font-bold">
               {stats.compliancePct !== null ? `${stats.compliancePct}%` : "—"}
             </span>
-            <span className="text-[11px] mt-1 text-muted-foreground">
+            {stats.compliancePct !== null && (
+              <div className="w-full max-w-[220px] h-2.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500"
+                  style={{ width: `${stats.compliancePct}%` }}
+                />
+              </div>
+            )}
+            <span className="text-xs text-muted-foreground text-center">
               {stats.compliancePct !== null
                 ? "Completadas vs canceladas"
                 : "Sin completadas ni canceladas en el período"}
@@ -795,7 +832,7 @@ export function OrdenesPage() {
         </Panel>
       </div>
 
-      {/* Cola de órdenes + Órdenes por hora */}
+      {/* Cola de órdenes + (prioridad activa, completadas por intervalo) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Panel
           className="lg:col-span-2"
@@ -831,73 +868,33 @@ export function OrdenesPage() {
               </thead>
               <tbody>
                 {pagedTable.map((o) => {
-                  const { items, total, multi } = getOrderItems(o);
-                  const isOpen = expanded.has(o.id);
+                  const items = orderProducts(o);
                   return (
-                    <Fragment key={o.id}>
-                      <tr
-                        onClick={() => multi && toggleExpanded(o.id)}
-                        className={cn(
-                          "border-b border-border/50 hover:bg-secondary/30",
-                          multi && "cursor-pointer",
-                        )}
-                      >
-                        <td className="py-3 px-2 text-xs font-bold">
-                          <span className="inline-flex items-center gap-1.5">
-                            {multi ? (
-                              isOpen ? (
-                                <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                              )
-                            ) : (
-                              <span className="w-3 h-3 inline-block" />
-                            )}
-                            {o.id}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2 text-xs text-muted-foreground">
-                          {multi ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <span className="text-foreground font-medium">Productos</span>
-                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/60 border border-border tabular-nums">
-                                {items.length}
-                              </span>
-                            </span>
-                          ) : (
-                            o.product
-                          )}
-                        </td>
-                        <td className="py-3 px-2 text-xs text-right tabular-nums">×{total}</td>
-                        <td className="py-3 px-2">
-                          <PriorityBadge p={o.priority as Priority} />
-                        </td>
-                        <td className="py-3 px-2">
-                          <StateBadge s={o.state as OrderState} />
-                        </td>
-                        <td className="py-3 px-2 text-xs">{o.rover}</td>
-                      </tr>
-                      {multi && isOpen && (
-                        <tr className="border-b border-border/50 bg-secondary/20">
-                          <td></td>
-                          <td colSpan={5} className="py-2 px-2">
-                            <ul className="space-y-1.5 pl-1">
-                              {items.map((it) => (
-                                <li
-                                  key={it.sku}
-                                  className="flex items-center justify-between text-xs"
-                                >
-                                  <span className="text-muted-foreground">{it.sku}</span>
-                                  <span className="tabular-nums text-foreground/80 pr-1">
-                                    ×{it.qty}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
+                    <tr key={o.id} className="border-b border-border/50 hover:bg-secondary/30">
+                      <td className="py-3 px-2 text-xs font-bold">{o.id}</td>
+                      <td className="py-3 px-2 text-xs text-muted-foreground">
+                        <ProductCell
+                          items={items}
+                          orderId={o.id}
+                          onOpen={() =>
+                            setDialogOrder({
+                              id: o.id,
+                              state: o.state as OrderState,
+                              priority: o.priority as Priority,
+                              items,
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="py-3 px-2 text-xs text-right tabular-nums">×{o.qty}</td>
+                      <td className="py-3 px-2">
+                        <PriorityBadge p={o.priority as Priority} />
+                      </td>
+                      <td className="py-3 px-2">
+                        <StateBadge s={o.state as OrderState} />
+                      </td>
+                      <td className="py-3 px-2 text-xs">{o.rover}</td>
+                    </tr>
                   );
                 })}
                 {filteredTable.length === 0 && (
@@ -921,216 +918,242 @@ export function OrdenesPage() {
           />
         </Panel>
 
-        <Panel
-          className="self-start"
-          title={ordersChartTitle(stats.bucketKind)}
-          action={
-            <div className="flex items-center gap-2">
-              <TemporalBadge value={periodTemporal(periodLabel(period))} />
-              <SourceBadge source={stats.source} />
-            </div>
-          }
-          expandable
-        >
-          {(expanded) => (
-            <>
-              <ChartBox height={260}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={horas}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-                    <XAxis
-                      dataKey="h"
-                      tick={{ fontSize: expanded ? 13 : 10 }}
-                      stroke="var(--muted-foreground)"
-                    />
-                    <YAxis
-                      tick={{ fontSize: expanded ? 13 : 10 }}
-                      stroke="var(--muted-foreground)"
-                    />
-                    <Tooltip
-                      // En semana y mes muestra el rango completo ("Semana del 06/10 al 12/10").
-                      labelFormatter={(label, payload) => payload?.[0]?.payload?.range ?? label}
-                      contentStyle={{
-                        fontSize: expanded ? 13 : 11,
-                        background: "var(--card)",
-                        border: "1px solid var(--border)",
-                      }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="ordenes"
-                      stroke={COLORS.amber}
-                      strokeWidth={2}
-                      dot={{ r: expanded ? 3 : 2 }}
-                      name="Completadas"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartBox>
-            </>
-          )}
-        </Panel>
-      </div>
-
-      {/* Histórico + Prioridad */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <Panel
-          className="lg:col-span-2"
-          title="Histórico de órdenes"
-          action={
-            <div className="flex items-center gap-2">
-              <TemporalBadge value={periodTemporal(periodLabel(period))} />
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={histQ}
-                  onChange={(e) => {
-                    setHistQ(e.target.value);
-                    // La lista cambia de tamaño: volver a la primera página en vez
-                    // de quedar parado en una que puede no tener los resultados.
-                    setHistPage(0);
-                  }}
-                  placeholder="Buscar orden..."
-                  aria-label="Buscar orden en el histórico"
-                  className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border bg-secondary/40 focus:outline-none focus:border-primary w-40"
-                />
-              </div>
-              <button className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-border bg-secondary/40 hover:bg-secondary/60">
-                <Download className="w-3 h-3" />
-                Exportar
-              </button>
-            </div>
-          }
-        >
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
-                  <Th>Fecha / hora</Th>
-                  <Th>Orden</Th>
-                  <Th>Producto</Th>
-                  <Th className="text-right">Cant.</Th>
-                  <Th>Prioridad</Th>
-                  <Th>Estado final</Th>
-                  <Th>Rover</Th>
-                  <Th className="text-right">Tiempo ciclo</Th>
-                  <Th className="text-right">Queue time</Th>
-                  <Th>Motivo falla</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagedHist.map((h) => (
-                  <tr key={h.orden} className="border-b border-border/50 hover:bg-secondary/30">
-                    <td className="py-3 px-2 text-[11px] text-muted-foreground whitespace-nowrap">
-                      {h.fecha}
-                    </td>
-                    <td className="py-3 px-2 text-xs font-bold">{h.orden}</td>
-                    <td className="py-3 px-2 text-xs text-muted-foreground">{h.producto}</td>
-                    <td className="py-3 px-2 text-xs text-right">×{h.qty}</td>
-                    <td className="py-3 px-2">
-                      <PriorityBadge p={h.priority} />
-                    </td>
-                    <td className="py-3 px-2">
-                      <StateBadge s={h.state} />
-                    </td>
-                    <td className="py-3 px-2 text-xs">{h.rover}</td>
-                    <td className="py-3 px-2 text-xs text-right tabular-nums">{h.tiempo}</td>
-                    <td className="py-3 px-2 text-xs text-right tabular-nums">{h.queue}</td>
-                    <td className="py-3 px-2 text-[11px] text-muted-foreground">{h.motivo}</td>
-                  </tr>
-                ))}
-                {filteredHist.length === 0 && (
-                  <tr>
-                    <td colSpan={10} className="py-6 text-center text-xs text-muted-foreground">
-                      {histQ.trim()
-                        ? "Ninguna orden coincide con la búsqueda"
-                        : "Sin registros para el rango seleccionado"}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <TablePagination
-            page={histPage}
-            totalPages={histTotalPages}
-            onPageChange={setHistPage}
-            from={histFrom}
-            to={histTo}
-            total={histTotal}
-            itemLabel="órdenes"
-          />
-        </Panel>
-
-        <Panel
-          className="self-start"
-          title="Órdenes por prioridad"
-          action={<TemporalBadge value={live()} />}
-          expandable
-        >
-          {(expanded) => (
-            <>
-              <div
-                className={`flex items-center ${expanded ? "gap-10 justify-center my-auto" : "gap-3"}`}
-              >
+        <div className="flex flex-col gap-5">
+          <Panel
+            title="Órdenes activas por prioridad"
+            subtitle="Pendientes y en curso"
+            action={<TemporalBadge value={live()} />}
+            expandable
+          >
+            {(expanded) => (
+              <>
                 <div
-                  className={`relative shrink-0 ${expanded ? "w-[320px] h-[320px]" : "w-[140px] h-[140px]"}`}
+                  className={`flex items-center ${expanded ? "gap-10 justify-center my-auto" : "gap-3"}`}
                 >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={prioData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={expanded ? "68%" : 42}
-                        outerRadius={expanded ? "100%" : 62}
-                        paddingAngle={2}
-                        stroke="none"
+                  <div
+                    className={`relative shrink-0 ${expanded ? "w-[320px] h-[320px]" : "w-[140px] h-[140px]"}`}
+                  >
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={prioData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={expanded ? "68%" : 42}
+                          outerRadius={expanded ? "100%" : 62}
+                          paddingAngle={2}
+                          stroke="none"
+                        >
+                          {prioData.map((d) => (
+                            <Cell key={d.key} fill={PRIORITY_COLOR[d.key]} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={{ fontSize: expanded ? 13 : 11 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className={`font-bold ${expanded ? "text-4xl" : "text-xl"}`}>
+                        {prioTotal.toLocaleString("es-AR")}
+                      </span>
+                      <span
+                        className={`text-muted-foreground ${expanded ? "text-xs" : "text-[10px]"}`}
                       >
-                        {prioData.map((d) => (
-                          <Cell key={d.key} fill={PRIORITY_COLOR[d.key]} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ fontSize: expanded ? 13 : 11 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className={`font-bold ${expanded ? "text-4xl" : "text-xl"}`}>
-                      {prioTotal.toLocaleString("es-AR")}
-                    </span>
-                    <span
-                      className={`text-muted-foreground ${expanded ? "text-xs" : "text-[10px]"}`}
-                    >
-                      Total
-                    </span>
+                        Total
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={`space-y-1.5 ${expanded ? "text-sm min-w-[260px]" : "flex-1 text-[11px]"}`}
+                  >
+                    {prioData.map((d) => {
+                      const pct = prioTotal ? Math.round((d.value / prioTotal) * 100) : 0;
+                      return (
+                        <div key={d.key} className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-sm"
+                              style={{ background: PRIORITY_COLOR[d.key] }}
+                            />
+                            {d.name}
+                          </span>
+                          <span className="text-muted-foreground tabular-nums">
+                            {d.value} <span className="opacity-60">({pct}%)</span>
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-                <div
-                  className={`space-y-1.5 ${expanded ? "text-sm min-w-[260px]" : "flex-1 text-[11px]"}`}
-                >
-                  {prioData.map((d) => {
-                    const pct = prioTotal ? Math.round((d.value / prioTotal) * 100) : 0;
-                    return (
-                      <div key={d.key} className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            className="w-2 h-2 rounded-sm"
-                            style={{ background: PRIORITY_COLOR[d.key] }}
-                          />
-                          {d.name}
-                        </span>
-                        <span className="text-muted-foreground tabular-nums">
-                          {d.value} <span className="opacity-60">({pct}%)</span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+              </>
+            )}
+          </Panel>
+          <Panel
+            className="flex-1"
+            title={ordersChartTitle(stats.bucketKind)}
+            action={
+              <div className="flex items-center gap-2">
+                <TemporalBadge value={periodTemporal(periodLabel(period))} />
+                <SourceBadge source={stats.source} />
               </div>
-            </>
-          )}
-        </Panel>
+            }
+            expandable
+          >
+            {(expanded) => (
+              <>
+                <ChartBox height={300}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={horas}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+                      <XAxis
+                        dataKey="h"
+                        tick={{ fontSize: expanded ? 13 : 10 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <YAxis
+                        tick={{ fontSize: expanded ? 13 : 10 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <Tooltip
+                        // En semana y mes muestra el rango completo ("Semana del 06/10 al 12/10").
+                        labelFormatter={(label, payload) => payload?.[0]?.payload?.range ?? label}
+                        contentStyle={{
+                          fontSize: expanded ? 13 : 11,
+                          background: "var(--card)",
+                          border: "1px solid var(--border)",
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="ordenes"
+                        stroke={COLORS.amber}
+                        strokeWidth={2}
+                        dot={{ r: expanded ? 3 : 2 }}
+                        name="Completadas"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartBox>
+              </>
+            )}
+          </Panel>
+        </div>
       </div>
+
+      {/* Histórico, a ancho completo: tiene 10 columnas */}
+      <Panel
+        title="Histórico de órdenes"
+        action={
+          <div className="flex items-center gap-2">
+            <TemporalBadge value={periodTemporal(periodLabel(period))} />
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={histQ}
+                onChange={(e) => {
+                  setHistQ(e.target.value);
+                  // La lista cambia de tamaño: volver a la primera página en vez
+                  // de quedar parado en una que puede no tener los resultados.
+                  setHistPage(0);
+                }}
+                placeholder="Buscar orden..."
+                aria-label="Buscar orden en el histórico"
+                className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border bg-secondary/40 focus:outline-none focus:border-primary w-40"
+              />
+            </div>
+            <button className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-border bg-secondary/40 hover:bg-secondary/60">
+              <Download className="w-3 h-3" />
+              Exportar
+            </button>
+          </div>
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                <Th>Fecha de creación</Th>
+                <Th>Orden</Th>
+                <Th>Producto</Th>
+                <Th className="text-right">Cant.</Th>
+                <Th>Prioridad</Th>
+                <Th>Estado final</Th>
+                <Th>Rover</Th>
+                <Th className="text-right">Tiempo ciclo</Th>
+                <Th className="text-right">Queue time</Th>
+                <Th>Motivo falla</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedHist.map((h) => (
+                <tr key={h.orden} className="border-b border-border/50 hover:bg-secondary/30">
+                  <td className="py-3 px-2 text-[11px] text-muted-foreground whitespace-nowrap">
+                    {h.fecha}
+                  </td>
+                  <td className="py-3 px-2 text-xs font-bold">{h.orden}</td>
+                  <td className="py-3 px-2 text-xs text-muted-foreground">
+                    <ProductCell
+                      items={h.items}
+                      orderId={h.orden}
+                      onOpen={() =>
+                        setDialogOrder({
+                          id: h.orden,
+                          state: h.state,
+                          priority: h.priority,
+                          items: h.items,
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-3 px-2 text-xs text-right">×{h.qty}</td>
+                  <td className="py-3 px-2">
+                    <PriorityBadge p={h.priority} />
+                  </td>
+                  <td className="py-3 px-2">
+                    <StateBadge s={h.state} />
+                  </td>
+                  <td className="py-3 px-2 text-xs">{h.rover}</td>
+                  <td className="py-3 px-2 text-xs text-right tabular-nums">{h.tiempo}</td>
+                  <td className="py-3 px-2 text-xs text-right tabular-nums">{h.queue}</td>
+                  <td className="py-3 px-2 text-[11px] text-muted-foreground">{h.motivo}</td>
+                </tr>
+              ))}
+              {filteredHist.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="py-6 text-center text-xs text-muted-foreground">
+                    {histQ.trim()
+                      ? "Ninguna orden coincide con la búsqueda"
+                      : "Sin registros para el rango seleccionado"}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <TablePagination
+          page={histPage}
+          totalPages={histTotalPages}
+          onPageChange={setHistPage}
+          from={histFrom}
+          to={histTo}
+          total={histTotal}
+          itemLabel="órdenes"
+        />
+      </Panel>
+
+      <OrderItemsDialog
+        open={dialogOrder !== null}
+        onOpenChange={(open) => !open && setDialogOrder(null)}
+        orderId={dialogOrder?.id ?? ""}
+        badges={
+          dialogOrder && (
+            <>
+              <StateBadge s={dialogOrder.state} />
+              <PriorityBadge p={dialogOrder.priority} />
+            </>
+          )
+        }
+        items={dialogItems}
+      />
     </div>
   );
 }
