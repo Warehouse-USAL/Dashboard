@@ -26,7 +26,7 @@ import { useFleetMetrics, type FleetVehicleStats } from "@/hooks/useFleetMetrics
 import { formatDuration, formatInstant } from "@/lib/metrics-api";
 import type { DataSource } from "@/lib/data-source";
 import type { Rover } from "@/lib/dashboard-data";
-import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { StickyPeriodBar } from "@/components/dashboard/StickyPeriodBar";
 import { periodLabel, type PeriodId } from "@/lib/dateRange";
 import { bucketRangeLabel, formatMonthStart } from "@/lib/granularity";
 
@@ -66,6 +66,25 @@ function EmptyPanel({ source, empty }: { source: DataSource; empty: string }) {
     </div>
   );
 }
+
+// Explicación completa de las dos métricas de confiabilidad, como tooltip de la
+// tarjeta. Una "falla" es que un rover pase a estado OFFLINE.
+const MTBF_HINT =
+  "Tiempo medio entre fallas (MTBF). Cada cuánto falla un rover, en promedio: " +
+  "duración del período ÷ cantidad de fallas. Más alto es mejor.\n\n" +
+  "Cómo se calcula: se obtiene el valor de cada rover y se promedian los rovers que " +
+  "fallaron al menos una vez; todos pesan igual, sin importar cuántas fallas tuvo cada uno. " +
+  "Los que no fallaron no se incluyen.\n\n" +
+  "Limitaciones: una falla es cualquier paso del rover a offline, tenga o no código de error. " +
+  "Como divide el período entero, incluye el tiempo que el rover estuvo caído.";
+const MTTR_HINT =
+  "Tiempo medio de recuperación (MTTR). Cuánto tarda un rover en volver cada vez que se cae: " +
+  "tiempo total offline ÷ cantidad de fallas. Más bajo es mejor.\n\n" +
+  "Cómo se calcula: se obtiene el valor de cada rover y se promedian los rovers que " +
+  "fallaron al menos una vez; todos pesan igual, sin importar cuántas fallas tuvo cada uno.\n\n" +
+  "Limitaciones: es una aproximación, porque el sistema cuenta las caídas pero no registra " +
+  "cuánto duró cada una. El tiempo offline incluye también el tiempo apagado que no fue una " +
+  "falla (p. ej. un apagado por mantenimiento en un rover que además falló).";
 
 function RoversPage() {
   const { data: rovers } = useVehicles();
@@ -127,7 +146,6 @@ function RoversPage() {
     fleet.busyFractionSum === null || !totalRovers
       ? null
       : Math.min(100, Math.round((fleet.busyFractionSum / totalRovers) * 100));
-  const horasTotales = rovers.reduce((a, r) => a + r.hours, 0);
 
   const kpis = [
     {
@@ -161,24 +179,26 @@ function RoversPage() {
     },
     {
       icon: Clock,
-      label: "MTBF",
+      label: "Tiempo medio entre fallas",
       value: formatDuration(fleet.fleetMtbf),
       sub:
         fleet.fleetMtbf === null
           ? "Sin fallas en el período"
-          : "Tiempo del período / fallas · promedio de rovers que fallaron",
+          : "Cada cuánto falla un rover, en promedio · período ÷ cantidad de fallas",
+      hint: MTBF_HINT,
       tone: "info" as const,
       source: fleet.metricsSource,
       temporal: periodTemporal(periodLabel(period)),
     },
     {
       icon: Wrench,
-      label: "MTTR",
+      label: "Tiempo medio de recuperación",
       value: formatDuration(fleet.fleetMttr),
       sub:
         fleet.fleetMttr === null
           ? "Sin fallas en el período"
-          : "Tiempo offline / fallas · promedio de rovers que fallaron",
+          : "Cuánto tarda un rover en volver tras una falla · tiempo offline ÷ cantidad de fallas",
+      hint: MTTR_HINT,
       tone: "warning" as const,
       source: fleet.metricsSource,
       temporal: periodTemporal(periodLabel(period)),
@@ -187,10 +207,7 @@ function RoversPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 flex items-end justify-end gap-2 flex-wrap text-xs">
-        <PeriodPicker value={period} onChange={setPeriod} />
-      </div>
+      <StickyPeriodBar value={period} onChange={setPeriod} />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -210,7 +227,14 @@ function RoversPage() {
         }
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-[20%]" />
+              <col className="w-[15%]" />
+              <col className="w-[25%]" />
+              <col className="w-[20%]" />
+              <col className="w-[20%]" />
+            </colgroup>
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                 <Th>Rover</Th>
@@ -218,7 +242,6 @@ function RoversPage() {
                 <Th>Batería</Th>
                 <Th>Ubicación</Th>
                 <Th>Orden actual</Th>
-                <Th className="text-right">Horas operación</Th>
               </tr>
             </thead>
             <tbody>
@@ -227,7 +250,7 @@ function RoversPage() {
               ))}
               {rovers.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-xs text-muted-foreground">
+                  <td colSpan={5} className="py-6 text-center text-xs text-muted-foreground">
                     Sin rovers registrados
                   </td>
                 </tr>
@@ -479,9 +502,7 @@ function RoversPage() {
         </Panel>
       </div>
 
-      <p className="text-[10px] text-muted-foreground text-right">
-        Datos de rovers en tiempo real · {horasTotales.toFixed(1)} horas acumuladas hoy
-      </p>
+      <p className="text-[10px] text-muted-foreground text-right">Datos de rovers en tiempo real</p>
     </div>
   );
 }
@@ -491,19 +512,19 @@ function RoversPage() {
 function RoverRow({ r }: { r: Rover }) {
   return (
     <tr className="border-b border-border/50 hover:bg-secondary/30">
-      <td className="py-3 px-2 text-xs font-bold">
+      <td className="py-3.5 px-2 text-sm font-bold">
         <span className="flex items-center gap-2">
-          <Truck className="w-3.5 h-3.5 text-muted-foreground" />
+          <Truck className="w-4 h-4 text-muted-foreground" />
           {r.name}
         </span>
       </td>
-      <td className="py-3 px-2">
+      <td className="py-3.5 px-2">
         <StateBadge state={r.state} />
       </td>
-      <td className="py-3 px-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs w-8">{Math.round(r.battery)}%</span>
-          <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
+      <td className="py-3.5 px-2">
+        <div className="flex items-center gap-3">
+          <span className="text-sm w-10 tabular-nums">{Math.round(r.battery)}%</span>
+          <div className="flex-1 max-w-[200px] h-2 rounded-full bg-muted overflow-hidden">
             <div
               className={`h-full ${r.battery < 25 ? "bg-destructive" : r.battery < 60 ? "bg-warning" : "bg-primary"}`}
               style={{ width: `${r.battery}%` }}
@@ -511,13 +532,10 @@ function RoverRow({ r }: { r: Rover }) {
           </div>
         </div>
       </td>
-      <td className="py-3 px-2 text-xs font-mono">
+      <td className="py-3.5 px-2 text-sm font-mono">
         X:{Math.round(r.x)} Y:{Math.round(r.y)}
       </td>
-      <td className="py-3 px-2 text-xs">{r.order ?? "—"}</td>
-      <td className="py-3 px-2 text-xs text-right text-muted-foreground">
-        {r.hours > 0 ? `${r.hours.toFixed(1)} h` : "—"}
-      </td>
+      <td className="py-3.5 px-2 text-sm">{r.order ?? "—"}</td>
     </tr>
   );
 }
@@ -536,6 +554,7 @@ function KpiCard({
   value,
   suffix,
   sub,
+  hint,
   tone,
   source = "live",
   temporal,
@@ -545,6 +564,8 @@ function KpiCard({
   value: string;
   suffix?: string;
   sub: string;
+  /** Explicación completa, como tooltip nativo de la tarjeta. */
+  hint?: string;
   tone: string;
   source?: DataSource;
   temporal: Temporality;
@@ -556,7 +577,7 @@ function KpiCard({
     info: "text-info bg-info/10",
   };
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4" title={hint}>
       <div className="flex items-start justify-between gap-2 mb-2">
         <div
           className={`w-8 h-8 rounded-md flex items-center justify-center ${toneCls[tone] ?? "text-primary bg-primary/10"}`}
@@ -686,7 +707,7 @@ function ProductividadPorRover({
                 <td className="py-3 px-2">
                   {r.cumplimiento === null ? (
                     <p className="text-xs text-right text-muted-foreground pr-4">
-                      sin órdenes cerradas
+                      sin órdenes completadas ni canceladas
                     </p>
                   ) : (
                     <div className="flex items-center justify-end gap-3">
@@ -717,9 +738,11 @@ function ProductividadPorRover({
         itemLabel="rovers"
       />
       <p className="text-[10px] text-muted-foreground mt-3">
-        Cumplimiento = órdenes completadas / (completadas + canceladas) en el período. No cuenta las
-        órdenes en curso. Una cancelada cuenta como no cumplida aunque la haya cancelado un usuario,
-        y una orden reasignada se atribuye al último rover.
+        Cumplimiento = órdenes completadas / (completadas + canceladas) en el período. Las
+        completadas se cuentan por fecha de completado y las canceladas por fecha de creación (el
+        backend no registra cuándo se canceló una orden). No cuenta las órdenes en curso. Una
+        cancelada cuenta como no cumplida aunque la haya cancelado un usuario, y una orden
+        reasignada se atribuye al último rover.
       </p>
     </Panel>
   );

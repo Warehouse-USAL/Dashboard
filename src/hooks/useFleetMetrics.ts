@@ -205,6 +205,32 @@ export function useFleetMetrics(period: PeriodId) {
     refetchInterval: 30_000,
   });
 
+  // Completadas por rover EN el período, por fecha de completado: es el número de
+  // la columna "Órdenes completadas", y tiene que coincidir con lo que se completó
+  // en el período en la página de Órdenes. También es el numerador del
+  // cumplimiento; las canceladas (denominador) salen de la consulta de arriba,
+  // por fecha de creación, porque la cancelación no tiene fecha propia.
+  const completedWindow = useMemo(() => ordersWindow(bounds, "completed_at"), [bounds]);
+  const completedByVehicle = useQuery({
+    queryKey: [
+      "completed-by-vehicle",
+      completedWindow.from.toISOString(),
+      completedWindow.to.toISOString(),
+    ],
+    queryFn: () =>
+      queryEntity<{ vehicle: string; orders: number }>("orders", {
+        filters: [
+          ...completedWindow.filters,
+          { field: "status", op: "eq", value: "COMPLETED" },
+          { field: "assigned_vehicle_id", op: "exists", value: true },
+        ],
+        group_by: [{ field: "assigned_vehicle_id", as: "vehicle" }],
+        aggregates: [{ op: "count", as: "orders" }],
+        size: 500,
+      }),
+    refetchInterval: 30_000,
+  });
+
   // Receta 9 — órdenes por hora, la otra mitad del gráfico de actividad.
   //
   // 1000 filas es el tope del backend en modo agregado: una ventana de hasta 41
@@ -247,7 +273,6 @@ export function useFleetMetrics(period: PeriodId) {
     // MAYÚSCULAS ("COMPLETED"), mientras que `GET /orders` lo serializa en
     // minúsculas. Se normaliza acá, en el borde.
     const ordersTotalByVehicle = new Map<string, number>();
-    const ordersDoneByVehicle = new Map<string, number>();
     const ordersCancelledByVehicle = new Map<string, number>();
     for (const row of ordersByVehicle.data?.items ?? []) {
       ordersTotalByVehicle.set(
@@ -255,12 +280,9 @@ export function useFleetMetrics(period: PeriodId) {
         (ordersTotalByVehicle.get(row.vehicle) ?? 0) + row.orders,
       );
       const status = row.status?.toLowerCase();
-      if (status === "completed") {
-        ordersDoneByVehicle.set(
-          row.vehicle,
-          (ordersDoneByVehicle.get(row.vehicle) ?? 0) + row.orders,
-        );
-      } else if (status === "cancelled") {
+      // Las completadas no se toman de acá (ver más abajo): esta consulta es por
+      // fecha de creación y dejaría afuera las que se crearon antes del período.
+      if (status === "cancelled") {
         ordersCancelledByVehicle.set(
           row.vehicle,
           (ordersCancelledByVehicle.get(row.vehicle) ?? 0) + row.orders,
@@ -268,12 +290,18 @@ export function useFleetMetrics(period: PeriodId) {
       }
     }
 
-    // Un rover puede aparecer en cualquiera de las tres fuentes: uno que nunca
-    // falló no tiene serie de fallas, y uno sin órdenes no está en Mongo.
+    // Completadas en el período por rover (por fecha de completado).
+    const completedInPeriodByVehicle = new Map<string, number>(
+      (completedByVehicle.data?.items ?? []).map((r) => [r.vehicle, r.orders]),
+    );
+
+    // Un rover puede aparecer en cualquiera de las fuentes: uno que nunca falló
+    // no tiene serie de fallas, y uno sin órdenes no está en Mongo.
     const vehicleIds = new Set<string>([
       ...failuresByVehicle.keys(),
       ...inErrorByVehicle.keys(),
       ...ordersTotalByVehicle.keys(),
+      ...completedInPeriodByVehicle.keys(),
     ]);
 
     const perVehicle: FleetVehicleStats[] = [...vehicleIds]
@@ -284,7 +312,14 @@ export function useFleetMetrics(period: PeriodId) {
         const fraction = inErrorByVehicle.has(vehicleId)
           ? avgPoints(inErrorByVehicle.get(vehicleId)!)
           : 0;
-        const completed = ordersDoneByVehicle.get(vehicleId) ?? 0;
+        // Completadas EN el período (por fecha de completado) — el mismo número de
+        // la columna "Órdenes completadas" — más las canceladas creadas en el
+        // período. Antes ambas salían de las órdenes CREADAS en el período: un rover
+        // que completó órdenes creadas antes de la ventana quedaba con
+        // "sin órdenes cerradas" aunque su columna de completadas tuviera valores.
+        // Las canceladas no tienen fecha propia (completed_at queda en null), así
+        // que sólo se pueden ubicar por creación.
+        const completed = completedInPeriodByVehicle.get(vehicleId) ?? 0;
         const closed = completed + (ordersCancelledByVehicle.get(vehicleId) ?? 0);
         return {
           vehicleId,
@@ -421,7 +456,9 @@ export function useFleetMetrics(period: PeriodId) {
       busyFraction.data,
     ]);
     const ordersSource: DataSource =
-      ordersByVehicle.isError || ordersByHour.isError ? "mock" : "live";
+      ordersByVehicle.isError || completedByVehicle.isError || ordersByHour.isError
+        ? "mock"
+        : "live";
 
     return {
       perVehicle,
@@ -456,6 +493,8 @@ export function useFleetMetrics(period: PeriodId) {
     ordersByVehicle.data,
     ordersByVehicle.isError,
     ordersByVehicle.isLoading,
+    completedByVehicle.data,
+    completedByVehicle.isError,
     ordersByHour.data,
     ordersByHour.isError,
     mWindow.seconds,

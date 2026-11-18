@@ -82,9 +82,6 @@ function DashLayout() {
       >
         <div className="p-5 border-b border-border flex items-center gap-3">
           <img src={logoUrl} alt="SmartWarehouse" className="h-8 w-auto" />
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Grupo 3 · v1.0
-          </p>
         </div>
         <nav className="p-3 space-y-1 flex-1">
           {nav.map((item) => {
@@ -122,7 +119,7 @@ function DashLayout() {
 
       {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="border-b border-border bg-card/30 backdrop-blur px-4 sm:px-6 py-3 flex items-center justify-between gap-4 sticky top-0 z-20">
+        <header className="border-b border-border bg-card/30 backdrop-blur px-4 sm:px-6 h-[61px] flex items-center justify-between gap-4 sticky top-0 z-20">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileNavOpen((o) => !o)}
@@ -177,11 +174,11 @@ function DashLayout() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 space-y-6 overflow-auto">
+        {/* overflow-x-clip y no overflow-auto: auto convertía a <main> en el contenedor de
+            scroll de los `sticky` de adentro, pero <main> no scrollea (lo hace la ventana),
+            así que la barra del período nunca se quedaba pegada. */}
+        <main className="flex-1 p-4 sm:p-6 space-y-6 overflow-x-clip">
           <Outlet />
-          <footer className="text-center text-[11px] text-muted-foreground pt-2">
-            SmartWarehouse · Grupo 3 — Dashboard de Monitoreo · Hito 1 · v1.0
-          </footer>
         </main>
       </div>
     </div>

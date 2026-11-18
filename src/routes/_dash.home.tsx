@@ -1,38 +1,21 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import {
   Activity,
-  AlertTriangle,
-  BatteryLow,
-  Bell,
   CheckCircle2,
-  ChevronRight,
   Clock,
   DollarSign,
   HeartPulse,
   LayoutDashboard,
-  Map as MapIcon,
   Package,
-  Radio,
-  ShieldAlert,
   Target,
   Truck,
   Warehouse,
 } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Panel, PageHeader } from "@/components/dashboard/Panel";
 import { ChartBox } from "@/components/dashboard/ChartBox";
-import { WarehouseMap } from "@/components/dashboard/WarehouseMap";
-import { alertTone, alerts, batteryTone, stateStyles, throughput } from "@/lib/dashboard-data";
+import { batteryTone, stateStyles } from "@/lib/dashboard-data";
 import { useQuery } from "@tanstack/react-query";
 import { getAllPositions } from "@/lib/api";
 import { useVehicles } from "@/hooks/useVehicles";
@@ -46,13 +29,14 @@ import { formatDuration } from "@/lib/metrics-api";
 import { periodLabel, type PeriodId } from "@/lib/dateRange";
 import { usePagedList } from "@/hooks/usePagination";
 import { TablePagination } from "@/components/dashboard/TablePagination";
-import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
+import { StickyPeriodBar } from "@/components/dashboard/StickyPeriodBar";
 import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
-import { SHOW_ALERTS_AND_SETTINGS } from "@/lib/feature-flags";
+import { useHomeCharts } from "@/hooks/useHomeCharts";
+import { ordersByBucketTitle, pickingSubtitle } from "@/lib/granularity";
 import { live, period as periodTemporal } from "@/lib/temporality";
 import type { Temporality } from "@/lib/temporality";
-import type { DataSource } from "@/lib/data-source";
+import { worstSource, type DataSource } from "@/lib/data-source";
 
 export const Route = createFileRoute("/_dash/home")({
   component: HomePage,
@@ -70,17 +54,14 @@ const tooltip = {
   labelStyle: { color: "#ffffff" },
 };
 
-const alertIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-  "battery-low": BatteryLow,
-  "shield-alert": ShieldAlert,
-  radio: Radio,
-  "alert-triangle": AlertTriangle,
-};
-
 // useOrderStats() exige un umbral de SLA aunque Home no muestre slaPct — sólo
 // se usa para esa consulta interna que acá no se lee. Mismo valor que Órdenes
 // (_dash.ordenes-v2.tsx), para no inventar un segundo número sin sentido.
 const SLA_MINUTES = 5;
+
+// Cuántos SKUs lista el panel (y cuánto dice su título). Con 5 filas queda de una
+// altura parecida a "Estado de rovers" con la flota de la demo (6 rovers).
+const TOP_SKUS_COUNT = 5;
 
 function HomePage() {
   const { data: rovers } = useVehicles();
@@ -119,7 +100,10 @@ function HomePage() {
     refetchInterval: 5 * 60_000,
   });
   useVehicleWebSocket();
-  const animatedRovers = useAnimatedRovers(rovers);
+  // Completadas por intervalo: las mismas que el gráfico de Órdenes (stats.hourly);
+  // canceladas y unidades despachadas se piden aparte.
+  const charts = useHomeCharts(period, stats.hourly);
+  const chartsSource = worstSource([stats.source, charts.source]);
 
   const ocupacionAlmacen = useMemo(() => {
     const totalStock = positions.reduce((s, p) => s + p.current_stock, 0);
@@ -136,7 +120,7 @@ function HomePage() {
       [...enrichedProducts]
         .filter((p) => p.dailyDemand > 0)
         .sort((a, b) => b.dailyDemand - a.dailyDemand)
-        .slice(0, 4)
+        .slice(0, TOP_SKUS_COUNT)
         .map((p) => [p.name, p.dailyDemand, p.totalUnits, p.sku] as const),
     [enrichedProducts],
   );
@@ -162,37 +146,27 @@ function HomePage() {
     return `$${Math.round(total).toLocaleString("es-AR")}`;
   }, [products]);
 
-  const picking = throughput.map((t) => ({ h: t.h, unidades: t.ordenes * 2 + 30 }));
-  const ordersHour = throughput.map((t, i) => ({
-    h: t.h,
-    completadas: t.ordenes,
-    canceladas: Math.max(0, Math.round(t.ordenes * 0.08) - (i % 3 === 0 ? 0 : 1)),
+  // dataKeys cortos que usan los gráficos; "h" es la etiqueta del eje X.
+  const chartData = charts.points.map((p) => ({
+    h: p.label,
+    range: p.range,
+    unidades: p.unidades,
+    completadas: p.completadas,
+    canceladas: p.canceladas,
   }));
-  const stockDuration = products.slice(0, 5).map((p) => ({
-    sku: p.sku,
-    dias: p.status === "agotado" ? 0 : p.status === "a_reponer" ? 4 : p.available > 100 ? 11 : 7,
-    status: p.status,
-  }));
-  const stockColor = (st: string) =>
-    st === "agotado"
-      ? "oklch(0.65 0.24 27)"
-      : st === "a_reponer"
-        ? "oklch(0.78 0.18 60)"
-        : "oklch(0.78 0.18 180)";
+  // En semana y mes el tooltip muestra el rango completo ("Semana del 06/10 al 12/10").
+  const tooltipLabel = (label: unknown, payload: ReadonlyArray<{ payload?: { range?: string } }>) =>
+    payload?.[0]?.payload?.range ?? String(label);
 
   return (
     <div className="space-y-6">
-      {/* sticky: no modifica PageHeader (lo comparten Alertas/Configuración,
-          que no piden esto) — el contenedor local es lo que se pega al hacer
-          scroll dentro de <main>. */}
-      <div className="sticky top-0 z-10 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 py-2">
-        <PageHeader
-          icon={LayoutDashboard}
-          title="Home"
-          description="Vista general del warehouse · Tiempo real"
-          action={<PeriodPicker value={period} onChange={setPeriod} />}
-        />
-      </div>
+      <PageHeader
+        icon={LayoutDashboard}
+        title="Home"
+        description="Vista general del warehouse · Tiempo real"
+      />
+      {/* El título se va con el scroll; sólo se queda pegada la barra del período. */}
+      <StickyPeriodBar value={period} onChange={setPeriod} />
 
       {/* KPIs */}
       <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -246,72 +220,14 @@ function HomePage() {
           temporal={periodTemporal(periodLabel(period))}
         />
         <KpiCard
-          label="T. Prom. Entre Fallas"
+          label="Tiempo medio entre fallas"
           value={formatDuration(fleet.fleetMtbf)}
           icon={HeartPulse}
-          trend={fleet.fleetMtbf === null ? "Sin fallas en el período" : "Prom. entre fallas"}
+          trend={fleet.fleetMtbf === null ? "Sin fallas en el período" : "Promedio entre fallas"}
           accent="destructive"
           temporal={periodTemporal(periodLabel(period))}
           source={fleet.metricsSource}
         />
-      </section>
-
-      {/* Mapa + Alertas */}
-      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Panel
-          title="Mapa del warehouse"
-          subtitle="Layout y posición de rovers"
-          icon={MapIcon}
-          className="xl:col-span-2"
-          action={<TemporalBadge value={live()} />}
-        >
-          <WarehouseMap rovers={animatedRovers} />
-          <div className="flex flex-wrap gap-3 mt-3 text-[11px]">
-            <LegendDot color="bg-primary" label="busy" />
-            <LegendDot color="bg-warning" label="idle" />
-            <LegendDot color="bg-destructive" label="error" />
-            <LegendDot color="bg-muted-foreground" label="offline" />
-          </div>
-        </Panel>
-
-        <Panel
-          title="Alertas críticas"
-          subtitle={`${alerts.length} eventos sin reconocer`}
-          icon={Bell}
-          action={
-            <div className="flex items-center gap-2">
-              <SourceBadge source="mock" />
-              {SHOW_ALERTS_AND_SETTINGS && (
-                <Link
-                  to="/alertas"
-                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                >
-                  Todas <ChevronRight className="w-3 h-3" />
-                </Link>
-              )}
-            </div>
-          }
-        >
-          <div className="space-y-2">
-            {alerts.slice(0, 5).map((a) => {
-              const Icon = alertIconMap[a.icon] ?? AlertTriangle;
-              return (
-                <div
-                  key={a.id}
-                  className={`rounded-lg border p-3 flex gap-3 items-start ${alertTone(a.level)}`}
-                >
-                  <Icon className="w-4 h-4 mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold truncate">{a.type}</p>
-                    <p className="text-[11px] opacity-80 mt-0.5">
-                      {a.rover} · {a.time}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Panel>
       </section>
 
       {/* Rovers + Top SKUs */}
@@ -369,7 +285,7 @@ function HomePage() {
         </Panel>
 
         <Panel
-          title="Top SKUs"
+          title={`Top ${TOP_SKUS_COUNT} SKUs`}
           subtitle={`Mayor demanda diaria · ${periodLabel(period)}`}
           icon={Target}
           action={<TemporalBadge value={periodTemporal(periodLabel(period))} />}
@@ -417,23 +333,33 @@ function HomePage() {
       </section>
 
       {/* Charts */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Panel
-          title="Eficiencia de picking"
-          subtitle="Unidades por hora"
+          title="Unidades despachadas"
+          subtitle={pickingSubtitle(charts.bucketKind)}
           icon={Clock}
-          action={<SourceBadge source="mock" />}
+          action={
+            <div className="flex items-center gap-2">
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
+              <SourceBadge source={charts.source} />
+            </div>
+          }
           expandable
         >
           {(expanded) => (
             <ChartBox height={220}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={picking}>
+                <BarChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
                   <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
                   <YAxis stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
-                  <Tooltip {...tooltip} />
-                  <Bar dataKey="unidades" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
+                  <Tooltip {...tooltip} labelFormatter={tooltipLabel} />
+                  <Bar
+                    dataKey="unidades"
+                    name="Unidades"
+                    fill="oklch(0.78 0.18 180)"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </ChartBox>
@@ -441,24 +367,35 @@ function HomePage() {
         </Panel>
 
         <Panel
-          title="Órdenes por hora"
+          title={ordersByBucketTitle(charts.bucketKind)}
           subtitle="Completadas vs canceladas"
           icon={Activity}
-          action={<SourceBadge source="mock" />}
+          action={
+            <div className="flex items-center gap-2">
+              <TemporalBadge value={periodTemporal(periodLabel(period))} />
+              <SourceBadge source={chartsSource} />
+            </div>
+          }
           expandable
         >
           {(expanded) => (
             <>
               <ChartBox height={220}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={ordersHour}>
+                  <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
                     <XAxis dataKey="h" stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
                     <YAxis stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
-                    <Tooltip {...tooltip} />
-                    <Bar dataKey="completadas" stackId="a" fill="oklch(0.78 0.18 180)" />
+                    <Tooltip {...tooltip} labelFormatter={tooltipLabel} />
+                    <Bar
+                      dataKey="completadas"
+                      name="Completadas"
+                      stackId="a"
+                      fill="oklch(0.78 0.18 180)"
+                    />
                     <Bar
                       dataKey="canceladas"
+                      name="Canceladas"
                       stackId="a"
                       fill="oklch(0.65 0.24 27)"
                       radius={[4, 4, 0, 0]}
@@ -471,46 +408,14 @@ function HomePage() {
               >
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-sm bg-primary" />
-                  Completadas
+                  Completadas (por fecha de completado)
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-sm bg-destructive" />
-                  Canceladas
+                  Canceladas (por fecha de creación)
                 </span>
               </div>
             </>
-          )}
-        </Panel>
-
-        <Panel
-          title="Duración del stock"
-          subtitle="Días hasta quiebre"
-          icon={Warehouse}
-          action={<SourceBadge source="mock" />}
-          expandable
-        >
-          {(expanded) => (
-            <ChartBox height={220}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stockDuration} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.32 0.025 250)" />
-                  <XAxis type="number" stroke="oklch(0.7 0.02 240)" fontSize={expanded ? 13 : 11} />
-                  <YAxis
-                    type="category"
-                    dataKey="sku"
-                    stroke="oklch(0.7 0.02 240)"
-                    fontSize={expanded ? 13 : 10}
-                    width={expanded ? 110 : 60}
-                  />
-                  <Tooltip {...tooltip} />
-                  <Bar dataKey="dias" radius={[0, 4, 4, 0]}>
-                    {stockDuration.map((s) => (
-                      <Cell key={s.sku} fill={stockColor(s.status)} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartBox>
           )}
         </Panel>
       </section>
@@ -575,84 +480,4 @@ function KpiCard({
       <p className="text-[11px] text-muted-foreground mt-1">{trend}</p>
     </div>
   );
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-      <span className={`w-2 h-2 rounded-full ${color}`} /> {label}
-    </span>
-  );
-}
-
-// Animate rovers' positions in real time, bouncing within aisle/zone bounds.
-function useAnimatedRovers(rovers: import("@/lib/dashboard-data").Rover[]) {
-  const [tick, setTick] = useState(0);
-  const stateRef = useRef<Map<string, { x: number; y: number; vx: number; vy: number }>>(new Map());
-  const rafRef = useRef<number | null>(null);
-  const lastRef = useRef<number>(0);
-
-  // Seed/refresh per-rover state when source changes
-  useEffect(() => {
-    const m = stateRef.current;
-    const seen = new Set<string>();
-    rovers.forEach((r) => {
-      seen.add(r.id);
-      if (!m.has(r.id)) {
-        const moving = r.state === "busy";
-        // Snap Y to nearest aisle band center (32 or 60)
-        const band = Math.abs(r.y - 32) < Math.abs(r.y - 60) ? 32 : 60;
-        m.set(r.id, {
-          x: r.x,
-          y: moving ? band : r.y,
-          vx: moving ? (r.vx >= 0 ? 1 : -1) * 0.8 : 0,
-          vy: 0,
-        });
-      }
-    });
-    for (const k of m.keys()) if (!seen.has(k)) m.delete(k);
-  }, [rovers]);
-
-  useEffect(() => {
-    const step = (t: number) => {
-      const dt = lastRef.current ? Math.min(64, t - lastRef.current) : 16;
-      lastRef.current = t;
-      const m = stateRef.current;
-      rovers.forEach((r) => {
-        const s = m.get(r.id);
-        if (!s) return;
-        if (r.state !== "busy") {
-          s.vx = 0;
-          s.vy = 0;
-          return;
-        }
-        // Straight-line motion along the aisle (Y locked)
-        s.x += s.vx * (dt / 32);
-        // Bounce within almacén x: 22..96
-        if (s.x < 22) {
-          s.x = 22;
-          s.vx = Math.abs(s.vx);
-        }
-        if (s.x > 96) {
-          s.x = 96;
-          s.vx = -Math.abs(s.vx);
-        }
-      });
-      setTick((n) => (n + 1) % 1_000_000);
-      rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      lastRef.current = 0;
-    };
-  }, [rovers]);
-
-  return useMemo(() => {
-    void tick;
-    return rovers.map((r) => {
-      const s = stateRef.current.get(r.id);
-      return s ? { ...r, x: s.x, y: s.y } : r;
-    });
-  }, [rovers, tick]);
 }

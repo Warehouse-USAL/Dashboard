@@ -8,19 +8,15 @@ import {
   Clock,
   TrendingDown,
   Search,
-  Download,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
-  RefreshCw,
 } from "lucide-react";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useInventoryMetrics, type EnrichedProduct } from "@/hooks/useInventoryMetrics";
 import type { FrontendRestock } from "@/lib/api";
 import { usePagedList } from "@/hooks/usePagination";
 import type { ComponentProps } from "react";
 import { Panel as SharedPanel } from "@/components/dashboard/Panel";
-import { ChartBox } from "@/components/dashboard/ChartBox";
 import { TablePagination } from "@/components/dashboard/TablePagination";
 import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import type { DataSource } from "@/lib/data-source";
@@ -28,7 +24,7 @@ import { TemporalBadge } from "@/components/dashboard/TemporalBadge";
 import { live, period as periodTemporal, dailyRun, restockWindow } from "@/lib/temporality";
 import type { Temporality } from "@/lib/temporality";
 import { PeriodPicker } from "@/components/dashboard/PeriodPicker";
-import { periodLabel, periodToBounds, type PeriodId } from "@/lib/dateRange";
+import { periodLabel, type PeriodId } from "@/lib/dateRange";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_dash/inventario-v2")({
@@ -81,6 +77,7 @@ type SortKey =
   | "physical"
   | "reserved"
   | "available"
+  | "unitPrice"
   // Pendiente (vuelven con `blended_demand`): columnas "Dem. diaria"/"Cobertura".
   // | "dailyDemand"
   // | "coverageDays"
@@ -89,68 +86,26 @@ type SortKey =
   | "suggestedQuantity"
   | "status";
 
-// ─── Mock movimientos data (no endpoint in RFC) ───────────────────────────────
-
-const MOV_BY_PERIOD: Record<PeriodId, Array<{ h: string; entradas: number; salidas: number }>> = {
-  "24h": ["00", "04", "08", "12", "16", "20"].map((h, i) => ({
-    h: `${h}:00`,
-    entradas: [12, 8, 42, 68, 54, 22][i],
-    salidas: [18, 14, 56, 82, 72, 38][i],
-  })),
-  "7d": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d, i) => ({
-    h: d,
-    entradas: [240, 280, 310, 260, 340, 180, 120][i],
-    salidas: [320, 360, 380, 340, 420, 210, 140][i],
-  })),
-  "30d": Array.from({ length: 6 }, (_, i) => ({
-    h: `Sem ${i + 1}`,
-    entradas: [1240, 1380, 1420, 1310, 1480, 1360][i],
-    salidas: [1480, 1620, 1680, 1540, 1740, 1580][i],
-  })),
-  "90d": ["Mar", "Abr", "May"].map((m, i) => ({
-    h: m,
-    entradas: [5240, 5680, 5920][i],
-    salidas: [6120, 6380, 6720][i],
-  })),
-  "1y": ["Nov", "Dic", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct"].map(
-    (m, i) => ({
-      h: m,
-      entradas: [5100, 5900, 4300, 4700, 5240, 5680, 5920, 5400, 5600, 5800, 6000, 5700][i],
-      salidas: [6000, 7100, 5100, 5500, 6120, 6380, 6720, 6200, 6400, 6600, 6900, 6500][i],
-    }),
-  ),
-};
-
-type MovKind = "entrada" | "salida" | "ajuste";
-type MovRow = {
-  offsetH: number;
-  sku: string;
-  kind: MovKind;
-  qty: number;
-  rover: string;
-  nota: string;
-};
-const MOVIMIENTOS: MovRow[] = [
-  { offsetH: 1, sku: "SKU-A102", kind: "salida", qty: 3, rover: "R-01", nota: "OR-12511" },
-  { offsetH: 2, sku: "SKU-C019", kind: "salida", qty: 5, rover: "R-03", nota: "OR-12510" },
-  { offsetH: 4, sku: "SKU-B441", kind: "entrada", qty: 12, rover: "—", nota: "Recepción prov." },
-  { offsetH: 6, sku: "SKU-D227", kind: "salida", qty: 2, rover: "R-04", nota: "OR-12508" },
-  { offsetH: 9, sku: "SKU-B502", kind: "ajuste", qty: -2, rover: "—", nota: "Inventario cíclico" },
-  { offsetH: 14, sku: "SKU-A188", kind: "salida", qty: 6, rover: "R-02", nota: "OR-12507" },
-  { offsetH: 22, sku: "SKU-E412", kind: "entrada", qty: 10, rover: "—", nota: "Recepción prov." },
-  { offsetH: 30, sku: "SKU-C077", kind: "salida", qty: 4, rover: "R-01", nota: "OR-12498" },
-  { offsetH: 48, sku: "SKU-D310", kind: "salida", qty: 8, rover: "R-04", nota: "OR-12492" },
-  { offsetH: 120, sku: "SKU-A102", kind: "entrada", qty: 60, rover: "—", nota: "Recepción prov." },
-  { offsetH: 480, sku: "SKU-C019", kind: "entrada", qty: 30, rover: "—", nota: "Recepción prov." },
-  { offsetH: 720, sku: "SKU-D227", kind: "salida", qty: 5, rover: "R-02", nota: "OR-12300" },
-];
-
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 function fmtMoney(ars: number): string {
   if (ars >= 1_000_000) return `$${(ars / 1_000_000).toFixed(1)}M`;
   if (ars >= 1_000) return `$${(ars / 1_000).toFixed(0)}K`;
   return `$${Math.round(ars).toLocaleString("es-AR")}`;
+}
+
+/** Importe completo, sin abreviar, para el tooltip: "$1.234.567,89". */
+function fmtMoneyFull(ars: number): string {
+  return `$${ars.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Importe abreviado (como `fmtMoney`) que muestra el valor completo al pasar el mouse. */
+function MoneyCell({ ars }: { ars: number }) {
+  return (
+    <span title={fmtMoneyFull(ars)} className="cursor-help">
+      {fmtMoney(ars)}
+    </span>
+  );
 }
 
 function fmtCoverage(days: number): string {
@@ -212,7 +167,7 @@ function InventarioPage() {
   const [period, setPeriod] = useState<PeriodId>("7d");
 
   // period drives dailyDemand/coverageDays on the table + "Top
-  // rotación" (exploratory) and the mock "Movimientos" panel below. They do
+  // rotación" (exploratory). They do
   // NOT drive `status` (viene de la recomendación diaria del cron) ni el KPI de
   // dead stock, que usa la ventana fija del cron (deadStockDays) para que un
   // período corto no haga parpadear las alertas. See useInventoryMetrics.
@@ -292,6 +247,9 @@ function InventarioPage() {
         // case "coverageDays":
         //   cmp = a.riskCoverageDays - b.riskCoverageDays;
         //   break;
+        case "unitPrice":
+          cmp = a.priceCents - b.priceCents;
+          break;
         case "stockValue":
           cmp = a.stockValue - b.stockValue;
           break;
@@ -328,33 +286,11 @@ function InventarioPage() {
     }
   };
 
-  // Movimientos (mock)
-  const movimientos = useMemo(() => {
-    const { from, to } = periodToBounds(period);
-    const now = to;
-    return MOVIMIENTOS.map((m) => ({ ...m, t: now - m.offsetH * 3_600_000 }))
-      .filter((m) => m.t >= from && m.t <= to)
-      .map((m) => ({ ...m, fecha: format(new Date(m.t), "dd/MM/yyyy HH:mm") }));
-  }, [period]);
-
   return (
     <div className="space-y-5">
       {/* ── Header ── */}
-      <div className="flex items-end justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">Inventario</h1>
-          <p className="text-xs text-muted-foreground">
-            Estado actual del stock · actualización cada 10s
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-secondary/40">
-            <Download className="w-3.5 h-3.5" /> Exportar
-          </button>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-secondary/40">
-            <RefreshCw className="w-3.5 h-3.5" /> Actualizar
-          </button>
-        </div>
+      <div>
+        <h1 className="text-lg font-bold tracking-tight">Inventario</h1>
       </div>
 
       {/* ── 5 KPI Cards ── */}
@@ -436,7 +372,7 @@ function InventarioPage() {
             : "Sin recomendación de reposición todavía: el cron aún no corrió"}
         </p>
         <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-sm min-w-[860px]">
+          <table className="w-full text-sm min-w-[940px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                 <SortTh k="sku" active={sortKey} dir={sortDir} onSort={toggleSort}>
@@ -456,6 +392,9 @@ function InventarioPage() {
                 </SortTh>
                 <SortTh k="available" active={sortKey} dir={sortDir} onSort={toggleSort} right>
                   Disponible
+                </SortTh>
+                <SortTh k="unitPrice" active={sortKey} dir={sortDir} onSort={toggleSort} right>
+                  Precio unit.
                 </SortTh>
                 {/* Pendiente: "Dem. diaria" y "Cobertura" vuelven cuando `product.restock`
                     exponga `blended_demand`. Antes usaban la Ventana de riesgo configurable.
@@ -499,7 +438,7 @@ function InventarioPage() {
               ))}
               {filteredTable.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center py-10 text-xs text-muted-foreground">
+                  <td colSpan={11} className="text-center py-10 text-xs text-muted-foreground">
                     Sin resultados
                   </td>
                 </tr>
@@ -652,121 +591,6 @@ function InventarioPage() {
           )}
         </Panel>
       </div>
-
-      {/* ── Movimientos chart (mock) ── */}
-      <Panel
-        title="Movimientos de stock"
-        subtitle="Entradas vs salidas · datos sintéticos"
-        action={
-          <div className="flex items-center gap-2">
-            <TemporalBadge value={periodTemporal(periodLabel(period))} />
-            <SourceBadge source="mock" />
-          </div>
-        }
-        expandable
-      >
-        {(expanded) => (
-          <>
-            <ChartBox height={200}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={MOV_BY_PERIOD[period]}
-                  margin={{ top: 6, right: 8, bottom: 0, left: expanded ? 0 : -16 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.92 0.01 250)" />
-                  <XAxis dataKey="h" tick={{ fontSize: expanded ? 13 : 10 }} />
-                  <YAxis tick={{ fontSize: expanded ? 13 : 10 }} />
-                  <Tooltip contentStyle={{ fontSize: expanded ? 13 : 11, borderRadius: 6 }} />
-                  <Bar dataKey="entradas" fill="oklch(0.78 0.18 180)" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="salidas" fill="oklch(0.72 0.18 50)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartBox>
-            <div className={`flex items-center gap-4 mt-2 ${expanded ? "text-xs" : "text-[11px]"}`}>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="w-2 h-2 rounded-sm"
-                  style={{ background: "oklch(0.78 0.18 180)" }}
-                />
-                Entradas
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="w-2 h-2 rounded-sm"
-                  style={{ background: "oklch(0.72 0.18 50)" }}
-                />
-                Salidas
-              </span>
-            </div>
-          </>
-        )}
-      </Panel>
-
-      {/* ── Movimientos recientes (mock) ── */}
-      <Panel
-        title="Movimientos recientes"
-        subtitle={`${movimientos.length} movimiento${movimientos.length === 1 ? "" : "s"} · datos sintéticos`}
-        action={
-          <div className="flex items-center gap-2">
-            <SourceBadge source="mock" />
-            <button className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-md border border-border hover:bg-secondary/40">
-              <Download className="w-3 h-3" /> Exportar
-            </button>
-          </div>
-        }
-      >
-        <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
-                <Th>Fecha</Th>
-                <Th>SKU</Th>
-                <Th>Tipo</Th>
-                <Th className="text-right">Cantidad</Th>
-                <Th>Rover</Th>
-                <Th>Nota</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {movimientos.map((m, i) => (
-                <tr
-                  key={`${m.sku}-${i}`}
-                  className="border-b border-border/50 hover:bg-secondary/30"
-                >
-                  <td className="py-2.5 px-2 text-xs text-muted-foreground whitespace-nowrap">
-                    {m.fecha}
-                  </td>
-                  <td className="py-2.5 px-2 text-xs font-mono font-bold">{m.sku}</td>
-                  <td className="py-2.5 px-2">
-                    <MovBadge k={m.kind} />
-                  </td>
-                  <td
-                    className={cn(
-                      "py-2.5 px-2 text-xs text-right tabular-nums font-semibold",
-                      m.qty < 0
-                        ? "text-destructive"
-                        : m.kind === "entrada"
-                          ? "text-emerald-500"
-                          : "text-foreground",
-                    )}
-                  >
-                    {m.qty > 0 ? `+${m.qty}` : m.qty}
-                  </td>
-                  <td className="py-2.5 px-2 text-xs">{m.rover}</td>
-                  <td className="py-2.5 px-2 text-xs text-muted-foreground">{m.nota}</td>
-                </tr>
-              ))}
-              {movimientos.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                    Sin movimientos en el período
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
     </div>
   );
 }
@@ -799,6 +623,9 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
         {p.reserved}
       </td>
       <td className="py-3 px-2 text-xs text-right tabular-nums font-semibold">{p.available}</td>
+      <td className="py-3 px-2 text-xs text-right tabular-nums">
+        {p.priceCents > 0 ? <MoneyCell ars={p.priceCents / 100} /> : "—"}
+      </td>
       {/* Pendiente: celdas "Dem. diaria" y "Cobertura" (ver encabezado de la tabla).
       <td className="py-3 px-2 text-xs text-right tabular-nums text-muted-foreground">
         {fmtDemand(p.riskDailyDemand)}
@@ -815,7 +642,7 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
       </td>
       */}
       <td className="py-3 px-2 text-xs text-right tabular-nums">
-        {p.priceCents > 0 ? fmtMoney(p.stockValue) : "—"}
+        {p.priceCents > 0 ? <MoneyCell ars={p.stockValue} /> : "—"}
       </td>
       <td className="py-3 px-2 text-xs text-muted-foreground whitespace-nowrap">
         {fmtLastOrder(p.lastOrderDate, p.lastOrderDaysAgo)}
@@ -840,10 +667,6 @@ function ProductRow({ p }: { p: EnrichedProduct }) {
 
 function Panel(props: ComponentProps<typeof SharedPanel>) {
   return <SharedPanel dense {...props} />;
-}
-
-function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <th className={`text-left font-medium py-2 px-2 ${className}`}>{children}</th>;
 }
 
 function SortTh({
@@ -936,20 +759,6 @@ function StatusBadge({ s }: { s: ProductStatus }) {
       className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_CSS[s]}`}
     >
       {STATUS_LABEL[s]}
-    </span>
-  );
-}
-
-function MovBadge({ k }: { k: MovKind }) {
-  const map: Record<MovKind, string> = {
-    entrada: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
-    salida: "border-primary/30 bg-primary/10 text-primary",
-    ajuste: "border-amber-500/30 bg-amber-500/10 text-amber-500",
-  };
-  const label: Record<MovKind, string> = { entrada: "Entrada", salida: "Salida", ajuste: "Ajuste" };
-  return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${map[k]}`}>
-      {label[k]}
     </span>
   );
 }
